@@ -64,15 +64,15 @@ class RingBuffer {
   const T &Oldest() const { return buffer_[tail_]; }
   int OldestIndex() const { return tail_; }
 
-  bool PopFirstOlderThan(const uint64_t &timestamp_ns, T *sample) {
+  bool PopFirstOlderThan(const uint64_t &timestamp_us, T *sample) {
     for (int i = 0; i < size_; ++i) {
       int index = head_ - i;
 
       // handle the wrap around
       index = index < 0 ? (index + size_) : index;
 
-      if ((timestamp_ns >= buffer_[index].time_ns) &&
-          (timestamp_ns < buffer_[index].time_ns + (uint64_t)1e8)) {
+      if ((timestamp_us >= buffer_[index].time_us) &&
+          (timestamp_us < buffer_[index].time_us + (uint64_t)10e6)) {
         *sample = buffer_[index];
         if (index == head_) {
           tail_ = head_;
@@ -85,7 +85,7 @@ class RingBuffer {
           }
         }
 
-        buffer_[index].time_ns = 0;
+        buffer_[index].time_us = 0;
         return true;
       }
 
