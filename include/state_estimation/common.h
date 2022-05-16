@@ -1,13 +1,15 @@
 #pragma once
 
-#include <Eigen/src/Core/Matrix.h>
-#include <Eigen/src/Geometry/Quaternion.h>
 #include <stdint.h>
 
-#include <Eigen/Dense>
+#include <eigen3/Eigen/Dense>
+
+constexpr uint64_t kVisionMaxIntervalUs = (uint64_t)200e3;
+constexpr uint64_t kBaroMaxIntervalUs = (uint64_t)200e3;
+constexpr uint64_t kFilterUpdatePeriodUs = (uint64_t)10e3;
 
 struct ImuSample {
-  uint64_t time_ns{0};
+  uint64_t time_us{0};
   Eigen::Vector3d delta_angle;
   Eigen::Vector3d delta_velocity;
   double delta_angle_dt;
@@ -15,12 +17,12 @@ struct ImuSample {
 };
 
 struct BaroSample {
-  uint64_t time_ns{0};
+  uint64_t time_us{0};
   double height;
 };
 
 struct VisionSample {
-  uint64_t time_ns{0};
+  uint64_t time_us{0};
   Eigen::Vector3d position;
   Eigen::Vector3d velocity;
   Eigen::Quaterniond orientation;
@@ -29,12 +31,17 @@ struct VisionSample {
   double angular_variance;
 };
 
-constexpr uint64_t kVisionMaxInterval = (uint64_t)200e6;
-constexpr uint64_t kBaroMaxInterval = (uint64_t)200e6;
+struct OutputSample {
+    uint64_t time_us{0};
+    Eigen::Quaterniond orientation;
+    Eigen::Vector3d velocity;
+    Eigen::Vector3d position;
+};
 
-struct settings {
-  int min_sensor_interval_us{(int)20e6};
-  double vision_delay_us{(int)100e6};
+struct Settings {
+  uint64_t min_observation_interval_us{(uint64_t)20e3};
+   uint64_t vision_delay_us{(uint64_t)100e3};
+   uint64_t baro_delay_us{(uint64_t)0};
 
   double gyro_noise{1.5e-2};
   double accel_noise{3.5e-1};
@@ -46,4 +53,9 @@ struct settings {
 
   double velocity_time_constant{0.25};
   double position_time_constant{0.25};
+};
+
+template <typename T>
+T clip(const T &n, const T &lower, const T &upper) {
+    return std::max(lower, std::min(n, upper));
 }

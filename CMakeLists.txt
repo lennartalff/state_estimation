@@ -8,7 +8,7 @@ endif()
 
 # Default to C++14
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 14)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -32,4 +32,24 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+include_directories(include)
+# add_executable(estimator src/estimator.cpp)
+
+# target_include_directories(interface
+#     PUBLIC
+#     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+#     $<INSTALL_INTERFACE:include>)
+# 
+# ament_export_targets(interface HAS_LIBRARY_TARGET)
+# ament_target_dependencies(interface Eigen3)
+
+install(
+    DIRECTORY launch
+    DESTINATION share/${PROJECT_NAME}
+)
+install(
+    TARGETS
+    # estimator
+    DESTINATION lib/${PROJECT_NAME}
+)
 ament_package()
