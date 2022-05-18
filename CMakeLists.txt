@@ -33,7 +33,7 @@ if(BUILD_TESTING)
 endif()
 
 include_directories(include)
-# add_executable(estimator src/estimator.cpp)
+add_executable(estimator src/estimator.cpp)
 
 # target_include_directories(interface
 #     PUBLIC

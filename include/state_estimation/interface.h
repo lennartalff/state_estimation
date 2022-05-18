@@ -20,13 +20,13 @@ class Interface {
   int observation_buffer_length_{0};
   uint64_t imu_dt_average_{0};
 
-  ImuSample imu_sample_delayed{};
+  ImuSample imu_sample_delayed_{};
 
-  BaroSample baro_sample_delayed{};
-  VisionSample vision_sample_delayed{};
+  BaroSample baro_sample_delayed_{};
+  VisionSample vision_sample_delayed_{};
 
-  OutputSample output_new{};
-  ImuSample latest_imu_sample{};
+  OutputSample output_new_{};
+  ImuSample latest_imu_sample_{};
   Eigen::Vector3d velocity_rel_imu_to_body_enu_;
   Eigen::Vector3d dvelocity_;
 

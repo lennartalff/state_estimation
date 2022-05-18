@@ -7,6 +7,16 @@
 constexpr uint64_t kVisionMaxIntervalUs = (uint64_t)200e3;
 constexpr uint64_t kBaroMaxIntervalUs = (uint64_t)200e3;
 constexpr uint64_t kFilterUpdatePeriodUs = (uint64_t)10e3;
+constexpr double kGravity = 9.81;
+constexpr double kPi = 3.1415926;
+
+struct StateSample {
+    Eigen::Quaterniond orientation;
+    Eigen::Vector3d position;
+    Eigen::Vector3d velocity;
+    Eigen::Vector3d delta_angle_bias;
+    Eigen::Vector3d delta_velocity_bias;
+};
 
 struct ImuSample {
   uint64_t time_us{0};
