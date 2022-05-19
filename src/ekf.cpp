@@ -91,6 +91,7 @@ bool Ekf::InitTilt() {
   state_.orientation = Eigen::AngleAxisd(roll, unit_x) *
                        Eigen::AngleAxisd(pitch, unit_y) *
                        Eigen::AngleAxisd(0.0, unit_z);
+  return true;
 }
 
 bool Ekf::Update() {
@@ -109,4 +110,30 @@ bool Ekf::Update() {
   }
   CalculateOutputState(latest_imu_sample_);
   return updated;
+}
+
+void Ekf::PredictState() {
+    Eigen::Vector3d delta_angle_corrected = imu_sample_delayed_.delta_angle - state_.delta_angle_bias;
+    const Eigen::Quaterniond delta_quat(Eigen::AngleAxisd{delta_angle_corrected});
+    state_.orientation = (state_.orientation * delta_quat).normalized();
+
+    const Eigen::Vector3d delta_velocity_corrected = imu_sample_delayed_.delta_velocity - state_.delta_velocity_bias;
+    
+    const Eigen::Vector3d velocity_last = state_.velocity;
+    state_.velocity += delta_velocity_corrected;
+    // TODO: check if sign is correct
+    state_.velocity(2) += kGravity * imu_sample_delayed_.delta_velocity_dt;
+    
+    // trapezoidal integration
+    state_.position += (velocity_last + state_.velocity) * imu_sample_delayed_.delta_velocity_dt * 0.5;
+    
+    ConstraintStates();
+
+    double input = 0.5 * (imu_sample_delayed_.delta_velocity_dt + imu_sample_delayed_.delta_angle_dt);
+    input = clip<double>(input, 0.5 * kFilterUpdatePeriodUs * 1e-6, 2.0 * kFilterUpdatePeriodUs * 1e-6);
+    // TODO: check if updating delta_time_ekf_average is necessary here
+
+    if (imu_sample_delayed_.delta_angle_dt > 0.25 * kFilterUpdatePeriodUs * 1e-6) {
+        angular_rate_delayed_raw_ = imu_sample_delayed_.delta_angle / imu_sample_delayed_.delta_angle_dt;
+    }
 }

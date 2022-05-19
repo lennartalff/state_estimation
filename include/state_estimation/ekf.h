@@ -51,4 +51,6 @@ class Ekf final : public Interface {
 
   Eigen::Vector3d baro_height_innovation_;
   Eigen::Vector3d baro_height_innovation_var_;
+
+  Eigen::Vector3d angular_rate_delayed_raw_;
 };
