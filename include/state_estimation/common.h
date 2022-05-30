@@ -63,6 +63,17 @@ struct Settings {
 
   double velocity_time_constant{0.25};
   double position_time_constant{0.25};
+
+  double initial_tilt_error{0.1};
+  double initial_gyro_bias{0.1};
+  double initial_accel_bias{0.2};
+
+  Eigen::Vector3d position_upper_limit = {2.0, 4.0, 0.5};
+  Eigen::Vector3d position_lower_limit = {0.0, 0.0, -2.0};
+  double velocity_limit{15.0};
+
+  Eigen::Vector3d velocity_noise = {0.1, 0.1, 0.1};
+  Eigen::Vector3d position_noise = {0.1, 0.1, 0.1};
 };
 
 template <typename T>

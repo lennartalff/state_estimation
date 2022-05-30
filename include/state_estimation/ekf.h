@@ -21,7 +21,11 @@ class Ekf final : public Interface {
   void CalculateOutputState(const ImuSample &imu_sample);
   bool InitTilt();
   void InitCovariance();
+  void InitQuaternionCovariances();
+  void ResetQuaternionCovariance();
+  void SetZeroQuaternionCovariance();
   void AlignOutputFilter();
+  void ConstrainStates();
 
  private:
   void Reset();
@@ -39,6 +43,7 @@ class Ekf final : public Interface {
   AlphaFilter<Eigen::Vector3d> gyro_filter_{0.1};
 
   double baro_height_offset_{0.0};
+  double dt_average_{kFilterUpdatePeriodUs * 1e-6};
 
   uint64_t time_deadreckoning_{0};
 

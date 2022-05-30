@@ -112,28 +112,78 @@ bool Ekf::Update() {
   return updated;
 }
 
+void Ekf::InitCovariance() {
+  P_.setZero();
+  delta_angle_bias_var_accumulated_.setZero();
+  delta_velocity_bias_var_accumulated_.setZero();
+
+  const double dt = kFilterUpdatePeriodUs * 1e-6;
+  ResetQuaternionCovariance();
+  
+  // velocity
+  P_(4, 4) = pow(std::max(settings_.velocity_noise(0), 0.01), 2);
+  P_(5, 5) = pow(std::max(settings_.velocity_noise(1), 0.01), 2);
+  P_(6, 6) = pow(std::max(settings_.velocity_noise(2), 0.01), 2);
+
+  // position
+  P_(7, 7) = pow(std::max(settings_.position_noise(0), 0.01), 2);
+  P_(8, 8) = pow(std::max(settings_.position_noise(1), 0.01), 2);
+  P_(9, 9) = pow(std::max(settings_.position_noise(2), 0.01), 2);
+
+  // gyro bias
+  P_(10, 10) = pow(settings_.initial_gyro_bias * dt, 2);
+  P_(12, 12) = P_(11, 11) = P_(10, 10);
+
+  // accel bias
+  P_(13, 13) = pow(settings_.initial_accel_bias * dt, 2);
+  P_(15, 15) = P_(14, 14) = P_(13, 13);
+}
+
+void Ekf::InitQuaternionCovariances() {
+  // TODO: check if more sophisticated initialization is necessary.
+  SetZeroQuaternionCovariance();
+  P_.topLeftCorner<4, 4>().setIdentity();
+}
+
+void Ekf::ResetQuaternionCovariance() {
+  SetZeroQuaternionCovariance();
+  InitQuaternionCovariances();
+}
+
+void Ekf::SetZeroQuaternionCovariance() {
+  P_.topRows<4>().setZero();
+  P_.leftCols<4>().setZero();
+}
+
 void Ekf::PredictState() {
-    Eigen::Vector3d delta_angle_corrected = imu_sample_delayed_.delta_angle - state_.delta_angle_bias;
-    const Eigen::Quaterniond delta_quat(Eigen::AngleAxisd{delta_angle_corrected});
-    state_.orientation = (state_.orientation * delta_quat).normalized();
+  Eigen::Vector3d delta_angle_corrected =
+      imu_sample_delayed_.delta_angle - state_.delta_angle_bias;
+  const Eigen::Quaterniond delta_quat(Eigen::AngleAxisd{delta_angle_corrected});
+  state_.orientation = (state_.orientation * delta_quat).normalized();
 
-    const Eigen::Vector3d delta_velocity_corrected = imu_sample_delayed_.delta_velocity - state_.delta_velocity_bias;
-    
-    const Eigen::Vector3d velocity_last = state_.velocity;
-    state_.velocity += delta_velocity_corrected;
-    // TODO: check if sign is correct
-    state_.velocity(2) += kGravity * imu_sample_delayed_.delta_velocity_dt;
-    
-    // trapezoidal integration
-    state_.position += (velocity_last + state_.velocity) * imu_sample_delayed_.delta_velocity_dt * 0.5;
-    
-    ConstraintStates();
+  const Eigen::Vector3d delta_velocity_corrected =
+      imu_sample_delayed_.delta_velocity - state_.delta_velocity_bias;
 
-    double input = 0.5 * (imu_sample_delayed_.delta_velocity_dt + imu_sample_delayed_.delta_angle_dt);
-    input = clip<double>(input, 0.5 * kFilterUpdatePeriodUs * 1e-6, 2.0 * kFilterUpdatePeriodUs * 1e-6);
-    // TODO: check if updating delta_time_ekf_average is necessary here
+  const Eigen::Vector3d velocity_last = state_.velocity;
+  state_.velocity += delta_velocity_corrected;
+  // TODO: check if sign is correct
+  state_.velocity(2) += kGravity * imu_sample_delayed_.delta_velocity_dt;
 
-    if (imu_sample_delayed_.delta_angle_dt > 0.25 * kFilterUpdatePeriodUs * 1e-6) {
-        angular_rate_delayed_raw_ = imu_sample_delayed_.delta_angle / imu_sample_delayed_.delta_angle_dt;
-    }
+  // trapezoidal integration
+  state_.position += (velocity_last + state_.velocity) *
+                     imu_sample_delayed_.delta_velocity_dt * 0.5;
+
+  ConstrainStates();
+
+  double input = 0.5 * (imu_sample_delayed_.delta_velocity_dt +
+                        imu_sample_delayed_.delta_angle_dt);
+  input = clip<double>(input, 0.5 * kFilterUpdatePeriodUs * 1e-6,
+                       2.0 * kFilterUpdatePeriodUs * 1e-6);
+  // TODO: check if updating delta_time_ekf_average is necessary here
+
+  if (imu_sample_delayed_.delta_angle_dt >
+      0.25 * kFilterUpdatePeriodUs * 1e-6) {
+    angular_rate_delayed_raw_ =
+        imu_sample_delayed_.delta_angle / imu_sample_delayed_.delta_angle_dt;
+  }
 }
