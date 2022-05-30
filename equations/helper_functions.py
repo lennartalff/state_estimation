@@ -25,7 +25,7 @@ def quat2Rot(q):
 
 def create_cov_matrix(i, j):
     if j >= i:
-        return Symbol("P(" + str(i) + "," + str(j) + ")", real=True)
+        return sympy.Symbol("P(" + str(i) + "," + str(j) + ")", real=True)
         # legacy array format
         # return Symbol("P[" + str(i) + "][" + str(j) + "]", real=True)
     else:
@@ -34,7 +34,7 @@ def create_cov_matrix(i, j):
 
 def create_symmetric_cov_matrix():
     # define a symbolic covariance matrix
-    P = Matrix(24,24,create_cov_matrix)
+    P = sympy.Matrix(24,24,create_cov_matrix)
 
     for index in range(24):
         for j in range(24):
