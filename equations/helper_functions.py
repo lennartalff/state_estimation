@@ -32,12 +32,12 @@ def create_cov_matrix(i, j):
         return 0
 
 
-def create_symmetric_cov_matrix():
+def create_symmetric_cov_matrix(size):
     # define a symbolic covariance matrix
-    P = sympy.Matrix(24,24,create_cov_matrix)
+    P = sympy.Matrix(size[0],size[1],create_cov_matrix)
 
-    for index in range(24):
-        for j in range(24):
+    for index in range(size[0]):
+        for j in range(size[0]):
             if index > j:
                 P[index,j] = P[j,index]
 
