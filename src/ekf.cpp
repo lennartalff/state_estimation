@@ -119,7 +119,7 @@ void Ekf::InitCovariance() {
 
   const double dt = kFilterUpdatePeriodUs * 1e-6;
   ResetQuaternionCovariance();
-  
+
   // velocity
   P_(4, 4) = pow(std::max(settings_.velocity_noise(0), 0.01), 2);
   P_(5, 5) = pow(std::max(settings_.velocity_noise(1), 0.01), 2);
@@ -175,15 +175,47 @@ void Ekf::PredictState() {
 
   ConstrainStates();
 
-  double input = 0.5 * (imu_sample_delayed_.delta_velocity_dt +
-                        imu_sample_delayed_.delta_angle_dt);
-  input = clip<double>(input, 0.5 * kFilterUpdatePeriodUs * 1e-6,
-                       2.0 * kFilterUpdatePeriodUs * 1e-6);
-  // TODO: check if updating delta_time_ekf_average is necessary here
+  double dt = 0.5 * (imu_sample_delayed_.delta_velocity_dt +
+                     imu_sample_delayed_.delta_angle_dt);
+  dt = clip<double>(dt, 0.5 * kFilterUpdatePeriodUs * 1e-6,
+                    2.0 * kFilterUpdatePeriodUs * 1e-6);
+
+  dt_average_ = 0.99 * dt_average_ + 0.01 * dt;
 
   if (imu_sample_delayed_.delta_angle_dt >
       0.25 * kFilterUpdatePeriodUs * 1e-6) {
     angular_rate_delayed_raw_ =
         imu_sample_delayed_.delta_angle / imu_sample_delayed_.delta_angle_dt;
   }
+}
+
+void Ekf::PredictCovariance() {
+  const double &qw = state_.orientation.w();
+  const double &qx = state_.orientation.x();
+  const double &qy = state_.orientation.y();
+  const double &qz = state_.orientation.z();
+
+  const double &delta_angle_x = imu_sample_delayed_.delta_angle(0);
+  const double &delta_angle_y = imu_sample_delayed_.delta_angle(1);
+  const double &delta_angle_z = imu_sample_delayed_.delta_angle(2);
+
+  const double &delta_velocity_x = imu_sample_delayed_.delta_velocity(0);
+  const double &delta_velocity_y = imu_sample_delayed_.delta_velocity(1);
+  const double &delta_velocity_z = imu_sample_delayed_.delta_velocity(2);
+
+  const double &delta_angle_bias_x = state_.delta_angle_bias(0);
+  const double &delta_angle_bias_y = state_.delta_angle_bias(1);
+  const double &delta_angle_bias_z = state_.delta_angle_bias(2);
+
+  const double &delta_velocity_bias_x = state_.delta_velocity_bias(0);
+  const double &delta_velocity_bias_y = state_.delta_velocity_bias(1);
+  const double &delta_velocity_bias_z = state_.delta_velocity_bias(2);
+
+  const double dt = kFilterUpdatePeriodUs * 1e-6;
+  const double dt_inv = 1.0 / dt;
+
+  const double delta_angle_bias_noise = dt * dt * clip<double>(settings_.gyro_bias_noise, 0.0, 1.0);
+  const double delta_velocity_bias_noise = dt * dt * clip<double>(settings_.accel_bias_noise, 0.0, 1.0);
+
+  // TODO: write rest of this method
 }
