@@ -37,10 +37,19 @@ class Ekf final : public Interface {
   bool baro_data_ready_{false};
   bool vision_data_ready_{false};
 
+  Eigen::Matrix3d R_to_earth_;
+
   bool is_first_imu_sample_{true};
   int baro_counter_{0};
   AlphaFilter<Eigen::Vector3d> acceleration_filter_{0.1};
+  AlphaFilter<Eigen::Vector3d> acceleration_magnitude_filter{0.1};
   AlphaFilter<Eigen::Vector3d> gyro_filter_{0.1};
+
+  bool accel_bias_inhibited_[3] {};
+  double gyro_magnitude_filtered_{0.0};
+  double accel_magnitude_filtered_{0.0};
+  Eigen::Vector3d accel_vec_filtered_;
+  Eigen::Vector3d prev_delta_velocity_bias_var_;
 
   double baro_height_offset_{0.0};
   double dt_average_{kFilterUpdatePeriodUs * 1e-6};

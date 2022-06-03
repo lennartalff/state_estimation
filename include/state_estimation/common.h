@@ -11,11 +11,11 @@ constexpr double kGravity = 9.81;
 constexpr double kPi = 3.1415926;
 
 struct StateSample {
-    Eigen::Quaterniond orientation;
-    Eigen::Vector3d position;
-    Eigen::Vector3d velocity;
-    Eigen::Vector3d delta_angle_bias;
-    Eigen::Vector3d delta_velocity_bias;
+  Eigen::Quaterniond orientation;
+  Eigen::Vector3d position;
+  Eigen::Vector3d velocity;
+  Eigen::Vector3d delta_angle_bias;
+  Eigen::Vector3d delta_velocity_bias;
 };
 
 struct ImuSample {
@@ -42,16 +42,26 @@ struct VisionSample {
 };
 
 struct OutputSample {
-    uint64_t time_us{0};
-    Eigen::Quaterniond orientation;
-    Eigen::Vector3d velocity;
-    Eigen::Vector3d position;
+  uint64_t time_us{0};
+  Eigen::Quaterniond orientation;
+  Eigen::Vector3d velocity;
+  Eigen::Vector3d position;
+};
+
+struct ImuBiasEstimation {
+  double time_constant{0.5};
+  double accel_bias_magnitude_limit{0.4};  ///< max acceleration bias magnitude
+  double accel_magnitude_limit{25.0};  ///< max acceleration magnitude for which
+                                       ///< bias estimation will be applied.
+  double gyro_magnitude_limit{
+      3.0};  /// < max gyroscope rate vector magnitude for which bias estimation
+             /// will be applied.
 };
 
 struct Settings {
   uint64_t min_observation_interval_us{(uint64_t)20e3};
-   uint64_t vision_delay_us{(uint64_t)100e3};
-   uint64_t baro_delay_us{(uint64_t)0};
+  uint64_t vision_delay_us{(uint64_t)100e3};
+  uint64_t baro_delay_us{(uint64_t)0};
 
   double gyro_noise{1.5e-2};
   double accel_noise{3.5e-1};
@@ -63,6 +73,8 @@ struct Settings {
 
   double velocity_time_constant{0.25};
   double position_time_constant{0.25};
+
+  ImuBiasEstimation imu_bias_estimation;
 
   double initial_tilt_error{0.1};
   double initial_gyro_bias{0.1};
@@ -78,5 +90,5 @@ struct Settings {
 
 template <typename T>
 T clip(const T &n, const T &lower, const T &upper) {
-    return std::max(lower, std::min(n, upper));
+  return std::max(lower, std::min(n, upper));
 }
