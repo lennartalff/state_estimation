@@ -10,6 +10,45 @@ constexpr uint64_t kFilterUpdatePeriodUs = (uint64_t)10e3;
 constexpr double kGravity = 9.81;
 constexpr double kPi = 3.1415926;
 
+union ControlStatus {
+  struct {
+    uint32_t tilt_align: 1;
+    uint32_t yaw_align: 1;
+    uint32_t in_air: 1;
+    uint32_t baro_height: 1;
+    uint32_t vision_height: 1;
+    uint32_t vehicle_at_rest: 1;
+  } flags;
+  uint32_t value;
+};
+
+union FaultStatus {
+  struct {
+    bool bad_heading: 1;
+    bool bad_velocity_x: 1;
+    bool bad_velocity_y: 1;
+    bool bad_velocity_z: 1;
+    bool bad_position_x: 1;
+    bool bad_position_y: 1;
+    bool bad_position_z: 1;
+    bool bad_acceleration_bias: 1;
+    bool bad_acceleration_clipping: 1;
+  }flags;
+  uint32_t value;
+};
+
+union InnovationFault {
+  struct {
+    bool reject_horizontal_velocity: 1;
+    bool reject_vertical_velocity: 1;
+    bool reject_horizontal_position: 1;
+    bool reject_vertical_position: 1;
+    bool reject_yaw: 1;
+    bool reject_baro: 1;
+  }flags;
+  uint16_t value;
+};
+
 struct StateSample {
   Eigen::Quaterniond orientation;
   Eigen::Vector3d position;
@@ -86,9 +125,22 @@ struct Settings {
 
   Eigen::Vector3d velocity_noise = {0.1, 0.1, 0.1};
   Eigen::Vector3d position_noise = {0.1, 0.1, 0.1};
+
+  Eigen::Vector3d imu_position_body = {0.0, 0.0, 0.0};
 };
 
 template <typename T>
 T clip(const T &n, const T &lower, const T &upper) {
   return std::max(lower, std::min(n, upper));
+}
+
+double kahan_summation(double sum, double input, double &accumulator) {
+  const double y = input - accumulator;
+  const double t = sum + y;
+  accumulator = (t - sum) - y;
+  return t;
+}
+
+inline double square(double a) {
+  return a * a;
 }

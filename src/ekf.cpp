@@ -19,7 +19,9 @@ void Ekf::Reset() {
 
   output_new_.orientation.setIdentity();
   output_new_.position.setZero();
-  output_new_.velocity.setZero();
+  output_new_.velocity.setZero(); 
+  delta_angle_correction_.setZero();
+  
   accel_magnitude_filtered_ = 0.0;
   gyro_magnitude_filtered_ = 0.0;
   prev_delta_velocity_bias_var_.setZero();
@@ -969,7 +971,12 @@ void Ekf::PredictCovariance() {
   P_new(11, 12) = P(11, 12);
   P_new(12, 12) = P(12, 12);
 
-  
+  for (int i = 10; i < 13; ++i) {
+    const int index = i - 10;
+    P_new(i, i) = kahan_summation(P_new(i, i), process_noise_var(i),
+                                  delta_angle_bias_var_accumulated_(index));
+  }
+
   if (!accel_bias_inhibited_[0]) {
     P_new(0, 13) = tmp41;
     P_new(1, 13) = tmp132;
@@ -985,6 +992,9 @@ void Ekf::PredictCovariance() {
     P_new(11, 13) = P(11, 13);
     P_new(12, 13) = P(12, 13);
     P_new(13, 13) = P(13, 13);
+
+    P_new(13, 13) = kahan_summation(P_new(13, 13), process_noise_var(13),
+                                    delta_velocity_bias_var_accumulated_(0));
   } else {
     P_new.row(13).setConstant(prev_delta_velocity_bias_var_(0));
     P_new.col(13).setConstant(prev_delta_velocity_bias_var_(0));
@@ -1006,6 +1016,9 @@ void Ekf::PredictCovariance() {
     P_new(12, 14) = P(12, 14);
     P_new(13, 14) = P(13, 14);
     P_new(14, 14) = P(14, 14);
+
+    P_new(14, 14) = kahan_summation(P_new(14, 14), process_noise_var(14),
+                                    delta_velocity_bias_var_accumulated_(1));
   } else {
     P_new.row(14).setConstant(prev_delta_velocity_bias_var_(1));
     P_new.col(14).setConstant(prev_delta_velocity_bias_var_(1));
@@ -1028,9 +1041,322 @@ void Ekf::PredictCovariance() {
     P_new(13, 15) = P(13, 15);
     P_new(14, 15) = P(14, 15);
     P_new(15, 15) = P(15, 15);
+
+    P_new(15, 15) = kahan_summation(P_new(15, 15), process_noise_var(15),
+                                    delta_velocity_bias_var_accumulated_(2));
   } else {
     P_new.row(15).setConstant(prev_delta_velocity_bias_var_(2));
     P_new.col(15).setConstant(prev_delta_velocity_bias_var_(2));
     delta_velocity_bias_var_accumulated_(2) = 0.0;
+  }
+
+  if ((P(7, 7) + P(8, 8)) > 1e4) {
+    for (int i = 7; i < 9; ++i) {
+      for (int j = 0; j < kNumStates; ++j) {
+        P_new(i, j) = P_(i, j);
+        P_new(j, i) = P_(j, i);
+      }
+    }
+  }
+
+  for (int i=0; i < kNumStates; ++i) {
+    P_(i, i) = P_new(i, i);
+  }
+  // TODO: check if fixCovarianceErrors() is necessary
+}
+
+void Ekf::CalculateOutputState(const ImuSample &imu_sample) {
+  const double dt_scale_correction = imu_dt_average_ / dt_average_;
+  const Eigen::Vector3d delta_angle(
+      imu_sample.delta_angle - state_.delta_angle_bias * dt_scale_correction +
+      delta_angle_correction_);
+  const double spin_delta_angle_D = delta_angle.dot(Eigen::Vector3d(R_to_earth_now_.row(2)));
+  yaw_delta_ef_ += spin_delta_angle_D;
+
+  yaw_rate_lpf_ef_ = 0.95 * yaw_rate_lpf_ef_ +
+                     0.05 * spin_delta_angle_D / imu_sample.delta_angle_dt;
+  const Eigen::Quaterniond delta_quat(Eigen::AngleAxisd{delta_angle});
+  output_new_.time_us = imu_sample.time_us;
+  output_new_.orientation = output_new_.orientation * delta_quat;
+  output_new_.orientation.normalize();
+  R_to_earth_now_ = output_new_.orientation.toRotationMatrix();
+
+  const Eigen::Vector3d delta_velocity_body{imu_sample.delta_velocity - state_.delta_velocity_bias * dt_scale_correction};
+  Eigen::Vector3d delta_velocity_earth{R_to_earth_now_ * delta_velocity_body};
+
+  // TODO: check sign;
+  delta_velocity_earth(2) -= kGravity * imu_sample.delta_velocity_dt;
+  
+  if (imu_sample.delta_velocity_dt > 1e-4) {
+    velocity_derivative_ = delta_velocity_earth * (1.0 / imu_sample.delta_velocity_dt);
+  }
+  const Eigen::Vector3d velocity_last(output_new_.velocity);
+  output_new_.velocity += delta_velocity_earth;
+  // trapezoidal integration
+  const Eigen::Vector3d delta_position = (output_new_.velocity + velocity_last) * (0.5 * imu_sample.delta_velocity_dt);
+  output_new_.position += delta_position;
+
+  if (imu_sample.delta_angle_dt > 1e-4) {
+    const Eigen::Vector3d angular_rate = imu_sample.delta_angle * (1.0 / imu_sample.delta_angle_dt);
+    const Eigen::Vector3d velocity_imu_rel_body = angular_rate.cross(settings_.imu_position_body);
+    velocity_rel_imu_body_enu_ = R_to_earth_now_ * velocity_imu_rel_body;
+  }
+
+  if (imu_updated_) {
+    output_buffer_.Push(output_new_);
+    const OutputSample &output_delayed = output_buffer_.Oldest();
+    const Eigen::Quaterniond q_error((state_.orientation.inverse() * output_delayed.orientation).normalized());
+    const double scalar = (q_error.w() >= 0.0) ? -2.0 : 2.0;
+    const Eigen::Vector3d delta_angle_error{scalar * q_error.x(), scalar * q_error.y(), scalar * q_error.z()};
+    const double time_delay = std::max((imu_sample.time_us - imu_sample_delayed_.time_us) * 1e-6, imu_dt_average_);
+    const double attitude_gain = 0.5 * imu_dt_average_ / time_delay; 
+
+    delta_angle_correction_ = delta_angle_error * attitude_gain;
+    output_tracking_error_(0) = delta_angle_error.norm();
+    const double velocity_gain =
+        dt_average_ /
+        clip<double>(settings_.velocity_time_constant, dt_average_, 10.0);
+    const double position_gain =
+        dt_average_ /
+        clip<double>(settings_.position_time_constant, dt_average_, 10.0);
+
+    const Eigen::Vector3d velocity_error(state_.velocity -
+                                         output_delayed.velocity);
+    const Eigen::Vector3d position_error(state_.position -
+                                         output_delayed.position);
+    output_tracking_error_(1) = velocity_error.norm();
+    output_tracking_error_(2) = position_error.norm();
+
+    velocity_error_integral_ += velocity_error;
+    const Eigen::Vector3d velocity_correction = velocity_error * velocity_gain + velocity_error_integral_ * square(velocity_gain) * 0.1;
+
+    position_error_integral_ += position_error;
+    const Eigen::Vector3d position_correction = position_error * position_gain + position_error_integral_ * square(position_gain) * 0.1;
+    CorrectOutputBuffer(velocity_correction, position_correction);
+
+  }
+}
+
+void Ekf::CorrectOutputBuffer(const Eigen::Vector3d &velocity_correction,
+                              const Eigen::Vector3d &position_correction) {
+  for (int index = 0; index < output_buffer_.Length(); ++index) {
+    output_buffer_[index].velocity += velocity_correction;
+    output_buffer_[index].position += position_correction;
+  }
+  output_new_ = output_buffer_.Newest();
+}
+
+void Ekf::Fuse(const StateVectord &K, double innovation) {
+  Eigen::Vector4d tmp = K.block<4, 1>(0, 0) * innovation;
+  state_.orientation.w() = tmp(0);
+  state_.orientation.x() = tmp(1);
+  state_.orientation.y() = tmp(2);
+  state_.orientation.z() = tmp(3);
+  state_.orientation.normalize();
+  state_.velocity -= K.block<3, 1>(4, 0) * innovation;
+  state_.position -= K.block<3, 1>(7, 0) * innovation;
+  state_.delta_angle_bias -= K.block<3, 1>(10, 0) * innovation;
+  state_.delta_velocity_bias -= K.block<3, 1>(13, 0) * innovation;
+}
+
+bool Ekf::CheckAndFixCovarianceUpdate(const StateMatrixd &KHP) {
+  bool healthy = true;
+  for (int i=0; i<kNumStates; ++i) {
+    if (P_(i, i) < KHP(i, i)) {
+      healthy = false;
+      P_.row(i).setConstant(0.0);
+      P_.col(i).setConstant(0.0);
+    }
+  }
+  return healthy;
+}
+
+void Ekf::FixCovarianceErrors(bool force_symmetry) {
+  double P_lim[5] = {};
+  P_lim[0] = 1.0; // quaternion max var
+  P_lim[1] = 1e6; // velocity max var
+  P_lim[2] = 1e6; // position max var
+  P_lim[3] = 1.0; // gyro max var
+  P_lim[4] = 1.0; // delta velocity z bias max var
+  for (int i = 0; i < 4; ++i) {
+    P_(i, i) = clip(P_(i, i), 0.0, P_lim[0]);
+  }
+  for (int i = 4; i < 7; ++i) {
+    P_(i, i) = clip(P_(i, i), 1e-6, P_lim[1]);
+  }
+  for (int i = 7; i < 10; ++i) {
+    P_(i, i) = clip(P_(i, i), 1e-6, P_lim[2]);
+  }
+  for (int i = 10; i < 13; ++i) {
+    P_(i, i) = clip(P_(i, i), 0.0, P_lim[3]);
+  }
+  if (force_symmetry) {
+    MakeCovarianceSymmetric<13>(0);
+  }
+
+  if (!accel_bias_inhibited_[0] || !accel_bias_inhibited_[1] || !accel_bias_inhibited_[2]) {
+    const double min_safe_state_var = 1e-9;
+    double max_state_var = min_safe_state_var;
+    bool reset_required = false;
+
+    for (int state_index = 13; state_index < 16; ++state_index) {
+      if (accel_bias_inhibited_[state_index - 13]) {
+        continue;
+      }
+      if (P_(state_index, state_index) > max_state_var) {
+        max_state_var = P_(state_index, state_index);
+      } else if (P_(state_index, state_index) < min_safe_state_var) {
+        reset_required = true;
+      }
+    }
+    const double min_state_var_target = 5e-8;
+    double min_allowed_state_var = std::max(0.01 * max_state_var, min_state_var_target);
+    for (int state_index = 13; state_index < 16; ++state_index) {
+      if (accel_bias_inhibited_[state_index - 13]) {
+        continue;
+      }
+      P_(state_index, state_index) = clip(P_(state_index, state_index), min_allowed_state_var, square(0.1 * kGravity * dt_average_));
+    }
+    if (reset_required) {
+      for (int i=13; i< 16; ++i) {
+        P_.row(i).setConstant(0.0);
+        P_.col(i).setConstant(0.0);
+      }
+    }
+    const double delta_velocity_bias_limit = 0.9 * settings_.imu_bias_estimation.accel_bias_magnitude_limit * dt_average_;
+    const double down_delta_velocity_bias = state_.delta_velocity_bias.dot(Eigen::Vector3d(R_to_earth_.row(2)));
+
+    bool bad_acceleration_bias =
+        (abs(down_delta_velocity_bias) > delta_velocity_bias_limit &&
+         ((down_delta_velocity_bias * vision_position_innovation_(2) < 0.0) ||
+          (down_delta_velocity_bias * baro_height_innovation_(2) < 0.0 &&
+           control_status_.flags.baro_height)));
+    if (!bad_acceleration_bias) {
+      fault_status_.flags.bad_acceleration_bias = false;
+      time_acceleration_bias_check_us_ = time_last_imu_;
+    } else {
+      fault_status_.flags.bad_acceleration_bias = true;
+    }
+    if (IsTimedOut(time_acceleration_bias_check_us_, (uint64_t)7e6)) {
+      for (int i=0; i<3; ++i) {
+        P_.row(13+i).setConstant(0.0);
+        P_.col(13+i).setConstant(0.0);
+        time_acceleration_bias_check_us_ = time_last_imu_;
+        fault_status_.flags.bad_acceleration_bias = false;
+
+      }
+    } else if (force_symmetry) {
+      MakeCovarianceSymmetric<3>(13);
+    }
+  }
+}
+
+bool Ekf::FuseHorizontalPosition(const Eigen::Vector3d &innovation,
+                                 const Eigen::Vector2d &innovation_gate,
+                                 const Eigen::Vector3d &observation_var,
+                                 Eigen::Vector3d &innovation_var,
+                                 Eigen::Vector2d &test_ratio,
+                                 bool inhibit_gate) {
+  innovation_var(0) = P_(7, 7) + observation_var(0);
+  innovation_var(1) = P_(8, 8) + observation_var(1);
+  test_ratio(0) = std::max(
+      square(innovation(0)) / (square(innovation_gate(0)) * innovation_var(0)),
+      square(innovation(1)) / (square(innovation_gate(0)) * innovation_var(1)));
+
+  const bool innovation_check_pass = test_ratio(0) <= 1.0;
+  if (innovation_check_pass && test_ratio(0) > square(100.0 / innovation_gate(0))) {
+    if (inhibit_gate && test_ratio(0) > square(100.0 / innovation_gate(0))) {
+      return false;
+    }
+    time_last_vision_ = time_last_imu_;
+    FuseVelocityPositionHeight(innovation(0), innovation_var(0), 3);
+    FuseVelocityPositionHeight(innovation(1), innovation_var(1), 4);
+    return true;
+  } else {
+    innovation_check_status_.flags.reject_horizontal_position = true;
+    return false;
+  }
+}
+
+bool Ekf::FuseVerticalPosition(const Eigen::Vector3d &innovation,
+                               const Eigen::Vector2d &innovation_gate,
+                               const Eigen::Vector3d &observation_var,
+                               Eigen::Vector3d &innovation_var,
+                               Eigen::Vector2d &test_ratio) {
+  innovation_var(2) = P_(9, 9) + observation_var(2);
+  test_ratio(1) =
+      square(innovation(2)) / (square(innovation_gate(1)) * innovation_var(2));
+  vertical_position_innovation_ratio_ = innovation(2) / sqrt(innovation_var(2));
+  vertical_position_fuse_attempt_time_us_ = time_last_imu_;
+  bool innovation_check_pass = test_ratio(1) <= 1.0;
+
+  double innovation_tmp;
+  // TODO: check for bad vertical acceleration
+  // see:
+  // https://github.com/PX4/PX4-ECL/blob/b3fed06fe822d08d19ab1d2c2f8daf7b7d21951c/EKF/vel_pos_fusion.cpp#L160
+  innovation_tmp = innovation(2);
+  if (innovation_check_pass) {
+    time_last_height_fuse_ = time_last_imu_;
+    innovation_check_status_.flags.reject_vertical_position = false;
+    FuseVelocityPositionHeight(innovation_tmp, innovation_var(2), 5);
+    return true;
+  } else {
+    innovation_check_status_.flags.reject_vertical_position = true;
+    return false;
+  }
+}
+
+void Ekf::FuseVelocityPositionHeight(const double innovation,
+                                     const double innovation_var,
+                                     const int observation_index) {
+  StateVectord K_fusion;
+  const int state_index = observation_index + 4;
+  for (int row = 0; row < kNumStates; ++row) {
+    K_fusion(row) = P_(row, state_index) / innovation_var;
+  }
+  StateMatrixd KHP;
+  for (int row = 0; row < kNumStates; ++row) {
+    for (int col = 0; col < kNumStates; ++col) {
+      KHP(row, col) = K_fusion(row) * P_(state_index, col);
+    }
+  }
+  bool healthy = true;
+  for (int i = 0; i<kNumStates; ++i) {
+    if (P_(i, i) < KHP(i, i)) {
+      P_.row(i).setConstant(0.0);
+      P_.col(i).setConstant(0.0);
+      healthy = false;
+    }
+  }
+  SetVelocityPositionFaultStatus(observation_index, !healthy);
+  if (healthy) {
+    P_ -= KHP;
+    FixCovarianceErrors(true);
+    Fuse(K_fusion, innovation);
+  }
+}
+
+void Ekf::SetVelocityPositionFaultStatus(const int index, const bool is_bad) {
+  switch(index) {
+    case 0:
+      fault_status_.flags.bad_velocity_x = is_bad;
+      break;
+    case 1:
+      fault_status_.flags.bad_velocity_y = is_bad;
+      break;
+    case 2:
+      fault_status_.flags.bad_velocity_z = is_bad;
+      break;
+    case 3:
+      fault_status_.flags.bad_position_x = is_bad;
+      break;
+    case 4:
+      fault_status_.flags.bad_position_y = is_bad;
+      break;
+    case 5:
+      fault_status_.flags.bad_position_z = is_bad;
+      break;
+    default:
+      break;
   }
 }
