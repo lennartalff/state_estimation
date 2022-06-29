@@ -35,6 +35,7 @@ class Ekf final : public Interface {
   void FuseVelocityPositionHeight(const double innovation,
                                   const double innovation_var,
                                   const int observation_index);
+  void FixCovarianceErrors(bool force_symmetry);
   void SetVelocityPositionFaultStatus(const int index, const bool is_bad);
   bool InitTilt();
   void InitCovariance();
@@ -44,6 +45,9 @@ class Ekf final : public Interface {
   void AlignOutputFilter();
   void ConstrainStates();
   bool CheckAndFixCovarianceUpdate(const StateMatrixd &KHP);
+  bool IsTimedOut(uint64_t timestamp_us, uint64_t timeout_period_us) {
+    return (timestamp_us + timeout_period_us) < time_last_imu_;
+  }
   template <int Width>
   void MakeCovarianceBlockSymmetric(int first) {
     if (Width > 1) {
