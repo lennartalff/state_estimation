@@ -116,6 +116,7 @@ bool Ekf::Update() {
     updated = true;
     PredictState();
     PredictCovariance();
+    
   }
   CalculateOutputState(latest_imu_sample_);
   return updated;
@@ -1359,4 +1360,12 @@ void Ekf::SetVelocityPositionFaultStatus(const int index, const bool is_bad) {
     default:
       break;
   }
+}
+
+void Ekf::UpdateDeadreckoningStatus() {
+  
+}
+
+void Ekf::UpdateSensorFusion() {
+
 }

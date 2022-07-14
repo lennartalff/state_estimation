@@ -20,6 +20,10 @@ class Estimator final : public rclcpp::Node {
   void BaroUpdate();
   void VisionUpdate();
 
+  void PublishAttitude();
+  void PublishPose();
+  void PublishSensorBias();
+
   void ResetImuWatchdog() {
     imu_watchdog_.reset();
     imu_timed_out = false;

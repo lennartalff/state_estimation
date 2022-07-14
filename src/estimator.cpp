@@ -43,8 +43,13 @@ void Estimator::OnImu(const sensor_msgs::msg::Imu::SharedPtr msg) {
       dt;
 
   ekf_.SetImuData(imu_sample_new);
-  // TODO: publish attitude?
+  PublishAttitude();
   BaroUpdate();
+  VisionUpdate();
+  if (ekf_.Update()) {
+    PublishPose();
+    PublishSensorBias();
+  }
 }
 
 void Estimator::OnBaro(const sensor_msgs::msg::FluidPressure::SharedPtr msg) {

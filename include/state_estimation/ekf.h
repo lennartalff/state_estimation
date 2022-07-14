@@ -15,6 +15,8 @@ class Ekf final : public Interface {
 
   bool Init(uint64_t timestamp_us) override;
 
+  void UpdateDeadreckoningStatus();
+
   bool Update();
   void PredictState();
   void PredictCovariance();
@@ -45,6 +47,9 @@ class Ekf final : public Interface {
   void AlignOutputFilter();
   void ConstrainStates();
   bool CheckAndFixCovarianceUpdate(const StateMatrixd &KHP);
+  void UpdateSensorFusion();
+  void UpdateVisionFusion();
+  void UpdateHeightFusion();
   bool IsTimedOut(uint64_t timestamp_us, uint64_t timeout_period_us) {
     return (timestamp_us + timeout_period_us) < time_last_imu_;
   }
