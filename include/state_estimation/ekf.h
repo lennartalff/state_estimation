@@ -5,6 +5,26 @@
 
 #include <eigen3/Eigen/Dense>
 
+namespace StateIndex {
+static constexpr int qw = 0;
+static constexpr int qx = 1;
+static constexpr int qy = 2;
+static constexpr int qz = 3;
+static constexpr int velocity_x = 4;
+static constexpr int velocity_y = 5;
+static constexpr int velocity_z = 6;
+static constexpr int position_x = 7;
+static constexpr int position_y = 8;
+static constexpr int position_z = 9;
+static constexpr int delta_angle_bias_x = 10;
+static constexpr int delta_angle_bias_y = 11;
+static constexpr int delta_angle_bias_z = 12;
+static constexpr int delta_velocity_bias_x = 13;
+static constexpr int delta_velocity_bias_y = 14;
+static constexpr int delta_velocity_bias_z = 15;
+static constexpr int NumStates = 16;
+};  // namespace StateIndex
+
 class Ekf final : public Interface {
  public:
   static constexpr int kNumStates{16};
@@ -47,11 +67,26 @@ class Ekf final : public Interface {
   void AlignOutputFilter();
   void ConstrainStates();
   bool CheckAndFixCovarianceUpdate(const StateMatrixd &KHP);
+  Eigen::Vector3d CalcRotationVectorVariances();
   void UpdateSensorFusion();
   void UpdateVisionFusion();
+  void UpdateHeightSensorTimeout();
   void UpdateHeightFusion();
+  void SetControlBaroHeight();
+  void SetControlVisionHeight();
+  void ResetHeight();
+  void ResetVerticalVelocityTo(double velocity);
+  void ResetVerticalPositionTo(double position);
+  bool ResetYawToVision();
+  void ResetQuaternionStateYaw(double yaw, double yaw_var, bool update_buffer);
+  void UpdateBaroHeightOffset();
+  void StartBaroHeightFusion();
+  void CheckVerticalAccelHealth();
   bool IsTimedOut(uint64_t timestamp_us, uint64_t timeout_period_us) {
     return (timestamp_us + timeout_period_us) < time_last_imu_;
+  }
+  bool IsRecent(uint64_t timestamp_us, uint64_t interval) const {
+    return timestamp_us + interval > time_last_imu_;
   }
   template <int Width>
   void MakeCovarianceBlockSymmetric(int first) {
@@ -92,7 +127,15 @@ class Ekf final : public Interface {
 
   Eigen::Matrix3d R_to_earth_;
 
+  bool baro_height_faulty_{false};
+
+  uint64_t time_bad_vertical_accel_us_{0};
+  uint64_t time_good_vertical_accel_us_{0};
+  bool bad_vertical_accel_detected{false};
+  unsigned int accel_clip_counter_{0};
+
   uint64_t time_acceleration_bias_check_us_{0};
+  uint64_t delta_time_baro_us_{0};
 
   double yaw_delta_ef_{0.0};
   double yaw_rate_lpf_ef_{0.0};
@@ -110,7 +153,11 @@ class Ekf final : public Interface {
   Eigen::Vector3d accel_vec_filtered_;
   Eigen::Vector3d prev_delta_velocity_bias_var_;
 
+  uint64_t time_last_horizontal_position_fuse_{0};
+  uint64_t time_last_height_fuse_{0};
+
   double baro_height_offset_{0.0};
+  double height_sensor_offset_{0.0};
   double dt_average_{kFilterUpdatePeriodUs * 1e-6};
 
   uint64_t time_deadreckoning_{0};

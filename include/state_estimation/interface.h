@@ -34,6 +34,7 @@ class Interface {
   InnovationFault innovation_check_status_{};
   FaultStatus fault_status_{};
   ControlStatus control_status_{};
+  ControlStatus control_status_prev_{};
 
   bool imu_updated_{false};
   bool initialized_{false};
@@ -46,7 +47,9 @@ class Interface {
   uint64_t time_last_imu_{0};
   uint64_t time_last_baro_{0};
   uint64_t time_last_vision_{0};
-  uint64_t time_last_height_fuse_{0};
+
+  Eigen::Vector2d baro_height_test_ratio_;
+  Eigen::Vector2d vision_position_test_ratio_;
 
   bool InitInterface(uint64_t timestamp_us);
 

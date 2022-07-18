@@ -9,6 +9,7 @@ constexpr uint64_t kBaroMaxIntervalUs = (uint64_t)200e3;
 constexpr uint64_t kFilterUpdatePeriodUs = (uint64_t)10e3;
 constexpr double kGravity = 9.81;
 constexpr double kPi = 3.1415926;
+constexpr uint64_t kBadAccelProbation = (uint64_t)10e6;
 
 union ControlStatus {
   struct {
@@ -17,6 +18,8 @@ union ControlStatus {
     uint32_t in_air: 1;
     uint32_t baro_height: 1;
     uint32_t vision_height: 1;
+    uint32_t vision_position: 1;
+    uint32_t vision_yaw: 1;
     uint32_t vehicle_at_rest: 1;
   } flags;
   uint32_t value;
@@ -32,6 +35,7 @@ union FaultStatus {
     bool bad_position_y: 1;
     bool bad_position_z: 1;
     bool bad_acceleration_bias: 1;
+    bool bad_acceleration_vertical: 1;
     bool bad_acceleration_clipping: 1;
   }flags;
   uint32_t value;
@@ -63,6 +67,7 @@ struct ImuSample {
   Eigen::Vector3d delta_velocity;
   double delta_angle_dt;
   double delta_velocity_dt;
+  bool delta_velocity_clipping[3]{};
 };
 
 struct BaroSample {
@@ -97,10 +102,18 @@ struct ImuBiasEstimation {
              /// will be applied.
 };
 
+enum class HeightMode {
+  kBaro,
+  kVision,
+
+};
+
 struct Settings {
   uint64_t min_observation_interval_us{(uint64_t)20e3};
   uint64_t vision_delay_us{(uint64_t)100e3};
   uint64_t baro_delay_us{(uint64_t)0};
+
+  HeightMode height_mode;
 
   double gyro_noise{1.5e-2};
   double accel_noise{3.5e-1};
@@ -109,6 +122,11 @@ struct Settings {
   double accel_bias_noise{1.0e-2};
 
   double baro_noise{0.02};
+  double baro_innovation_gate{5.0};
+
+  uint64_t bad_accel_reset_delay_us{500000};
+
+  const uint64_t reset_timeout_max_us{7000000};
 
   double velocity_time_constant{0.25};
   double position_time_constant{0.25};
@@ -119,6 +137,8 @@ struct Settings {
   double initial_gyro_bias{0.1};
   double initial_accel_bias{0.2};
 
+  double vision_innovation_gate{5.0};
+
   Eigen::Vector3d position_upper_limit = {2.0, 4.0, 0.5};
   Eigen::Vector3d position_lower_limit = {0.0, 0.0, -2.0};
   double velocity_limit{15.0};
@@ -127,6 +147,9 @@ struct Settings {
   Eigen::Vector3d position_noise = {0.1, 0.1, 0.1};
 
   Eigen::Vector3d imu_position_body = {0.0, 0.0, 0.0};
+
+  double vertical_innovation_test_limit{3.0};
+
 };
 
 template <typename T>
