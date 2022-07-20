@@ -57,6 +57,10 @@ class Ekf final : public Interface {
   void FuseVelocityPositionHeight(const double innovation,
                                   const double innovation_var,
                                   const int observation_index);
+  void FuseHeading();
+  void FuseYaw321(double yaw, double yaw_var, bool zero_innovation);
+  void FuseYaw312(double yaw, double yaw_var, bool zero_innovation);
+  void UpdateQuaternion(const double innovation, const double variance, const double gate_sigma, const Eigen::Vector4d &yaw_jacobian);
   void FixCovarianceErrors(bool force_symmetry);
   void SetVelocityPositionFaultStatus(const int index, const bool is_bad);
   bool InitTilt();
@@ -64,6 +68,9 @@ class Ekf final : public Interface {
   void InitQuaternionCovariances();
   void ResetQuaternionCovariance();
   void SetZeroQuaternionCovariance();
+  void UncorrelateQuaternion();
+  void UncorrelateHorizontalPositionSetTo(const Eigen::Vector2d &position);
+  void UncorrelateHorizontalVelocitySetTo(const Eigen::Vector2d &velocity);
   void AlignOutputFilter();
   void ConstrainStates();
   bool CheckAndFixCovarianceUpdate(const StateMatrixd &KHP);
@@ -74,13 +81,27 @@ class Ekf final : public Interface {
   void UpdateHeightFusion();
   void SetControlBaroHeight();
   void SetControlVisionHeight();
+  void IncreaseQuaternionYawErrorVariance(double yaw_var);
   void ResetHeight();
+  void ResetYawGyroBiasCov();
+  void ResetHorizontalPosition();
+  void ResetHorizontalPositionTo(const Eigen::Vector2d &position);
+  void ResetHorizontalPositionToVision();
   void ResetVerticalVelocityTo(double velocity);
   void ResetVerticalPositionTo(double position);
   bool ResetYawToVision();
+  void ResetVelocity();
+  void ResetHorizontalVelocityToZero();
+  void ResetHorizontalVelocityTo(const Eigen::Vector2d &velocity);
   void ResetQuaternionStateYaw(double yaw, double yaw_var, bool update_buffer);
   void UpdateBaroHeightOffset();
   void StartBaroHeightFusion();
+  void StartVisionPositionFusion();
+  void StartVisionYawFusion();
+  void StopVisionHeightFusion();
+  void StopVisionFusion();
+  void StopVisionPositionFusion();
+  void StopVisionYawFusion();
   void CheckVerticalAccelHealth();
   bool IsTimedOut(uint64_t timestamp_us, uint64_t timeout_period_us) {
     return (timestamp_us + timeout_period_us) < time_last_imu_;
@@ -180,5 +201,9 @@ class Ekf final : public Interface {
   Eigen::Vector3d baro_height_innovation_;
   Eigen::Vector3d baro_height_innovation_var_;
 
+  double heading_innovation_{0.0};
+  double heading_innovation_var_{0.0};
+
   Eigen::Vector3d angular_rate_delayed_raw_;
+  double last_static_yaw_{0.0};
 };

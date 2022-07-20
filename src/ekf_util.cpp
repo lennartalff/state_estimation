@@ -1,4 +1,5 @@
 #include <state_estimation/ekf.h>
+#include <state_estimation/util.h>
 
 void Ekf::SetControlBaroHeight() {
   control_status_.flags.baro_height = true;
@@ -57,6 +58,14 @@ Eigen::Vector3d Ekf::CalcRotationVectorVariances() {
   return rot_vec_var;
 }
 
+void Ekf::ResetYawGyroBiasCov() {
+  constexpr auto index = StateIndex::delta_angle_bias_z;
+  const double init_delta_angle_bias_var = square(settings_.initial_gyro_bias * dt_average_);
+  P_.row(index).setZero();
+  P_.col(index).setZero();
+  P_(index, index) = init_delta_angle_bias_var;
+}
+
 void Ekf::ResetHeight() {
   if (control_status_.flags.baro_height) {
     const BaroSample &baro_newest = baro_buffer_.Newest();
@@ -82,6 +91,27 @@ void Ekf::ResetHeight() {
   P_.row(StateIndex::velocity_z).setZero();
   P_.col(StateIndex::velocity_z).setZero();
   P_(StateIndex::velocity_z, StateIndex::velocity_z) = 10.0;
+}
+
+void Ekf::ResetVelocity() {
+  ResetHorizontalVelocityToZero();
+}
+
+void Ekf::ResetHorizontalVelocityToZero() {
+  ResetHorizontalVelocityTo(Eigen::Vector2d(0.0, 0.0));
+  UncorrelateHorizontalVelocitySetTo(Eigen::Vector2d(25.0, 25.0));
+}
+
+void Ekf::ResetHorizontalVelocityTo(const Eigen::Vector2d &velocity) {
+  const Eigen::Vector2d delta_velocity = velocity - Eigen::Vector2d(state_.velocity);
+  state_.velocity.x() = velocity.x();
+  state_.velocity.y() = velocity.y();
+  for (int i=0; i<output_buffer_.Length(); ++i) {
+    output_buffer_[i].velocity.x() += delta_velocity.x();
+    output_buffer_[i].velocity.y() += delta_velocity.y();
+  }
+  output_new_.velocity.x() = delta_velocity.x();
+  output_new_.velocity.y() = delta_velocity.y();
 }
 
 void Ekf::ResetVerticalVelocityTo(double velocity) {
@@ -124,6 +154,31 @@ void Ekf::StartBaroHeightFusion() {
   height_sensor_offset_ = 0.0;
 }
 
+void Ekf::StartVisionPositionFusion() {
+  control_status_.flags.vision_position = true;
+  ResetHorizontalPosition();
+}
+
+void Ekf::StartVisionYawFusion() {
+  control_status_.flags.vision_yaw = true;
+}
+
+void Ekf::StopVisionFusion() {
+  StopVisionPositionFusion();
+  StopVisionYawFusion();
+}
+
+void Ekf::StopVisionPositionFusion() {
+  control_status_.flags.vision_position = false;
+  vision_position_innovation_.setZero();
+  vision_position_innovation_var_.setZero();
+  vision_position_test_ratio_.setZero();
+}
+
+void Ekf::StopVisionYawFusion() {
+  control_status_.flags.vision_yaw = false;
+}
+
 void Ekf::CheckVerticalAccelHealth() {
   bool is_inertial_nav_falling = false;
   bool is_pos_vel_independent = false;
@@ -161,6 +216,34 @@ void Ekf::CheckVerticalAccelHealth() {
   }
 }
 
+void Ekf::ResetHorizontalPosition() {
+  if (control_status_.flags.vision_position) {
+    ResetHorizontalPositionToVision();
+  } else {
+    // SHOULD NOT HAPPEN
+    // TODO:: log this
+  }
+}
+
+void Ekf::ResetHorizontalPositionToVision() {
+  Eigen::Vector3d vision_position = vision_sample_delayed_.position;
+  ResetHorizontalPositionTo(Eigen::Vector2d(vision_position));
+  UncorrelateHorizontalPositionSetTo(Eigen::Vector2d(vision_sample_delayed_.position_variance));
+}
+
+void Ekf::ResetHorizontalPositionTo(const Eigen::Vector2d &position) {
+  const Eigen::Vector2d delta_position(position -
+                                       Eigen::Vector2d(state_.position));
+  state_.position(0) = position(0);
+  state_.position(1) = position(1);
+  for (int i = 0; i < output_buffer_.Length(); ++i) {
+    output_buffer_[i].position(0) += delta_position(0);
+    output_buffer_[i].position(1) += delta_position(1);
+  }
+  output_new_.position(0) += delta_position(0);
+  output_new_.position(1) += delta_position(1);
+}
+
 bool Ekf::ResetYawToVision() {
   const double yaw_new =
       vision_sample_delayed_.orientation.toRotationMatrix().eulerAngles(0, 1,
@@ -175,7 +258,7 @@ void Ekf::ResetQuaternionStateYaw(double yaw, double yaw_var,
                                   bool update_buffer) {
   const Eigen::Quaterniond q_prev = state_.orientation;
   R_to_earth_ = state_.orientation.toRotationMatrix();
-  R_to_earth = UpdateYawInRotationMatrix(yaw, R_to_earth_);
+  R_to_earth_ = UpdateYawInRotationMatrix(yaw, R_to_earth_);
   const Eigen::Quaterniond q_after_reset(R_to_earth_);
   const Eigen::Quaterniond q_error(
       (q_after_reset * q_prev.inverse()).normalized());
@@ -183,7 +266,7 @@ void Ekf::ResetQuaternionStateYaw(double yaw, double yaw_var,
   state_.orientation = q_after_reset.normalized();
   UncorrelateQuaternion();
   if (yaw_var > __DBL_EPSILON__) {
-    IncreateQuaternionYawErrorVariance(yaw_var);
+    IncreaseQuaternionYawErrorVariance(yaw_var);
   }
 
   if (update_buffer) {
@@ -192,4 +275,71 @@ void Ekf::ResetQuaternionStateYaw(double yaw, double yaw_var,
     }
     output_new_.orientation = q_error * output_new_.orientation;
   }
+}
+
+void Ekf::UncorrelateQuaternion() {
+  P_.block<StateIndex::NumStates - 4, 4>(4, 0).setZero();
+  P_.block<4, StateIndex::NumStates - 4>(0, 4).setZero();
+}
+
+void Ekf::UncorrelateHorizontalPositionSetTo(const Eigen::Vector2d &position) {
+  P_.block<2, StateIndex::NumStates>(StateIndex::position_x, 0).setZero();
+  P_.block<StateIndex::NumStates, 2>(0, StateIndex::position_x).setZero();
+  P_(StateIndex::position_x, StateIndex::position_x) = position(0);
+  P_(StateIndex::position_y, StateIndex::position_y) = position(1);
+}
+
+void Ekf::UncorrelateHorizontalVelocitySetTo(const Eigen::Vector2d &velocity) {
+  P_.block<2, StateIndex::NumStates>(StateIndex::velocity_x, 0).setZero();
+  P_.block<StateIndex::NumStates, 2>(0, StateIndex::velocity_x).setZero();
+  P_(StateIndex::velocity_x, StateIndex::velocity_x) = velocity(0);
+  P_(StateIndex::velocity_y, StateIndex::velocity_y) = velocity(1);
+}
+
+void Ekf::IncreaseQuaternionYawErrorVariance(double yaw_var) {
+  double SG[3];
+  SG[0] = square(state_.orientation.w()) - square(state_.orientation.x()) -
+          square(state_.orientation.y()) + square(state_.orientation.z());
+  SG[1] = 2 * state_.orientation.w() * state_.orientation.y() -
+          2 * state_.orientation.x() * state_.orientation.z();
+  SG[2] = 2 * state_.orientation.w() * state_.orientation.x() +
+          2 * state_.orientation.y() * state_.orientation.z();
+
+  float SQ[4];
+  SQ[0] = 0.5f *
+          ((state_.orientation.x() * SG[0]) - (state_.orientation.w() * SG[2]) +
+           (state_.orientation.z() * SG[1]));
+  SQ[1] = 0.5f *
+          ((state_.orientation.w() * SG[1]) - (state_.orientation.y() * SG[0]) +
+           (state_.orientation.z() * SG[2]));
+  SQ[2] = 0.5f *
+          ((state_.orientation.z() * SG[0]) - (state_.orientation.x() * SG[1]) +
+           (state_.orientation.y() * SG[2]));
+  SQ[3] = 0.5f *
+          ((state_.orientation.w() * SG[0]) + (state_.orientation.x() * SG[2]) +
+           (state_.orientation.y() * SG[1]));
+
+  // Limit yaw variance increase to prevent a badly conditioned covariance
+  // matrix
+  yaw_var = std::min<double>(yaw_var, 1.0e-2f);
+
+  // Add covariances for additonal yaw uncertainty to existing covariances.
+  // This assumes that the additional yaw error is uncorrrelated to existing
+  // errors
+  P_(0, 0) += yaw_var * square(SQ[2]);
+  P_(0, 1) += yaw_var * SQ[1] * SQ[2];
+  P_(1, 1) += yaw_var * square(SQ[1]);
+  P_(0, 2) += yaw_var * SQ[0] * SQ[2];
+  P_(1, 2) += yaw_var * SQ[0] * SQ[1];
+  P_(2, 2) += yaw_var * square(SQ[0]);
+  P_(0, 3) -= yaw_var * SQ[2] * SQ[3];
+  P_(1, 3) -= yaw_var * SQ[1] * SQ[3];
+  P_(2, 3) -= yaw_var * SQ[0] * SQ[3];
+  P_(3, 3) += yaw_var * square(SQ[3]);
+  P_(1, 0) += yaw_var * SQ[1] * SQ[2];
+  P_(2, 0) += yaw_var * SQ[0] * SQ[2];
+  P_(2, 1) += yaw_var * SQ[0] * SQ[1];
+  P_(3, 0) -= yaw_var * SQ[2] * SQ[3];
+  P_(3, 1) -= yaw_var * SQ[1] * SQ[3];
+  P_(3, 2) -= yaw_var * SQ[0] * SQ[3];
 }

@@ -150,6 +150,8 @@ struct Settings {
 
   double vertical_innovation_test_limit{3.0};
 
+  double heading_innovation_gate{2.6};
+
 };
 
 template <typename T>
@@ -166,4 +168,28 @@ double kahan_summation(double sum, double input, double &accumulator) {
 
 inline double square(double a) {
   return a * a;
+}
+
+template<typename Floating>
+Floating wrap_floating(Floating x, Floating low, Floating high) {
+  if (low <= x && x < high) {
+    return x;
+  }
+  const auto range = high - low;
+  const auto inv_range = Floating(1) / range;
+  const auto num_wraps = floor((x - low) * inv_range);
+  return x - range * num_wraps;
+}
+
+inline double wrap(double x, double low, double high) {
+  return wrap_floating(x, low, high);
+}
+
+inline float wrap(float x, float low, float high) {
+  return wrap_floating(x, low, high);
+}
+
+template<typename Type>
+Type wrap_pi(Type x) {
+  return wrap(x, Type(-M_PI), Type(M_PI))
 }

@@ -50,6 +50,10 @@ class Interface {
 
   Eigen::Vector2d baro_height_test_ratio_;
   Eigen::Vector2d vision_position_test_ratio_;
+  double yaw_test_ratio_{};
+
+  uint64_t time_last_in_air_us_{0};
+  uint64_t time_last_on_ground_us_{0};
 
   bool InitInterface(uint64_t timestamp_us);
 

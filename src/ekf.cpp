@@ -1,4 +1,5 @@
 #include <state_estimation/ekf.h>
+#include <state_estimation/util.h>
 
 #include <cmath>
 
@@ -1178,6 +1179,278 @@ void Ekf::Fuse(const StateVectord &K, double innovation) {
   state_.delta_velocity_bias -= K.block<3, 1>(13, 0) * innovation;
 }
 
+void Ekf::FuseHeading() {
+  double yaw_var;
+  double measured_heading;
+
+  if (control_status_.flags.vision_yaw) {
+    yaw_var = vision_sample_delayed_.angular_variance;
+  } else {
+    yaw_var = 0.01;
+  }
+
+  R_to_earth_ = state_.orientation.matrix();
+  if (ShouldUse321RotationSequence(R_to_earth_)) {
+    const double predicted_heading = Euler321Yaw(R_to_earth_);
+    if (control_status_.flags.vision_yaw) {
+      measured_heading = Euler321Yaw(vision_sample_delayed_.orientation);
+    } else {
+      measured_heading = predicted_heading;
+    }
+
+    bool fuse_zero_innovation = false;
+    last_static_yaw_ = predicted_heading;
+    FuseYaw321(measured_heading, yaw_var, fuse_zero_innovation);
+  } else {
+    const double predicted_heading = Euler312Yaw(R_to_earth_);
+    if (control_status_.flags.vision_yaw) {
+      measured_heading = Euler312Yaw(vision_sample_delayed_.orientation);
+    } else {
+      measured_heading = predicted_heading;
+    }
+
+    bool fuse_zero_innovation = false;
+    last_static_yaw_ = predicted_heading;
+    FuseYaw312(measured_heading, yaw_var, fuse_zero_innovation);
+  }
+}
+
+// copy of
+// https://github.com/PX4/PX4-ECL/blob/b3fed06fe822d08d19ab1d2c2f8daf7b7d21951c/EKF/mag_fusion.cpp#L420
+void Ekf::FuseYaw321(double yaw, double yaw_var, bool zero_innovation) {
+  // assign intermediate state variables
+  const double q0 = state_.orientation.w();
+  const double q1 = state_.orientation.x();
+  const double q2 = state_.orientation.y();
+  const double q3 = state_.orientation.z();
+
+  const double R_YAW = std::max(yaw_var, 1.0e-4);
+  const double measurement = wrap_pi(yaw);
+
+  // calculate 321 yaw observation matrix
+  // choose A or B computational paths to avoid singularity in derivation at
+  // +-90 degrees yaw
+  bool canUseA = false;
+  const double SA0 = 2 * q3;
+  const double SA1 = 2 * q2;
+  const double SA2 = SA0 * q0 + SA1 * q1;
+  const double SA3 = square(q0) + square(q1) - square(q2) - square(q3);
+  double SA4, SA5_inv;
+  if (square(SA3) > 1e-6) {
+    SA4 = 1.0 / square(SA3);
+    SA5_inv = square(SA2) * SA4 + 1;
+    canUseA = abs(SA5_inv) > 1e-6;
+  }
+
+  bool canUseB = false;
+  const double SB0 = 2 * q0;
+  const double SB1 = 2 * q1;
+  const double SB2 = SB0 * q3 + SB1 * q2;
+  const double SB4 = square(q0) + square(q1) - square(q2) - square(q3);
+  double SB3, SB5_inv;
+  if (square(SB2) > 1e-6) {
+    SB3 = 1.0 / square(SB2);
+    SB5_inv = SB3 * square(SB4) + 1;
+    canUseB = abs(SB5_inv) > 1e-6;
+  }
+
+  Eigen::Vector4d H_YAW;
+
+  if (canUseA && (!canUseB || abs(SA5_inv) >= abs(SB5_inv))) {
+    const double SA5 = 1.0 / SA5_inv;
+    const double SA6 = 1.0 / SA3;
+    const double SA7 = SA2 * SA4;
+    const double SA8 = 2 * SA7;
+    const double SA9 = 2 * SA6;
+
+    H_YAW(0) = SA5 * (SA0 * SA6 - SA8 * q0);
+    H_YAW(1) = SA5 * (SA1 * SA6 - SA8 * q1);
+    H_YAW(2) = SA5 * (SA1 * SA7 + SA9 * q1);
+    H_YAW(3) = SA5 * (SA0 * SA7 + SA9 * q0);
+  } else if (canUseB && (!canUseA || abs(SB5_inv) > abs(SA5_inv))) {
+    const double SB5 = 1.0 / SB5_inv;
+    const double SB6 = 1.0 / SB2;
+    const double SB7 = SB3 * SB4;
+    const double SB8 = 2 * SB7;
+    const double SB9 = 2 * SB6;
+
+    H_YAW(0) = -SB5 * (SB0 * SB6 - SB8 * q3);
+    H_YAW(1) = -SB5 * (SB1 * SB6 - SB8 * q2);
+    H_YAW(2) = -SB5 * (-SB1 * SB7 - SB9 * q2);
+    H_YAW(3) = -SB5 * (-SB0 * SB7 - SB9 * q3);
+  } else {
+    return;
+  }
+
+  // calculate the yaw innovation and wrap to the interval between +-pi
+  double innovation;
+  if (zero_innovation) {
+    innovation = 0.0;
+  } else {
+    innovation =
+        wrap_pi(atan2(R_to_earth_(1, 0), R_to_earth_(0, 0)) - measurement);
+  }
+
+  // define the innovation gate size
+  double innov_gate = std::max(settings_.heading_innovation_gate, 1.0);
+
+  // Update the quaternion states and covariance matrix
+  UpdateQuaternion(innovation, R_YAW, innov_gate, H_YAW);
+}
+
+// copy of
+// https://github.com/PX4/PX4-ECL/blob/b3fed06fe822d08d19ab1d2c2f8daf7b7d21951c/EKF/mag_fusion.cpp#L500
+void Ekf::FuseYaw312(double yaw, double yaw_var, bool zero_innovation) {
+  const double q0 = state_.orientation.w();
+  const double q1 = state_.orientation.x();
+  const double q2 = state_.orientation.y();
+  const double q3 = state_.orientation.z();
+
+  const double R_YAW = std::max<double>(yaw_var, 1.0e-4);
+  const double measurement = wrap_pi(yaw);
+
+  // calculate 312 yaw observation matrix
+  // choose A or B computational paths to avoid singularity in derivation at
+  // +-90 degrees yaw
+  bool canUseA = false;
+  const double SA0 = 2 * q3;
+  const double SA1 = 2 * q2;
+  const double SA2 = SA0 * q0 - SA1 * q1;
+  const double SA3 = square(q0) - square(q1) + square(q2) - square(q3);
+  double SA4, SA5_inv;
+  if (square(SA3) > 1e-6) {
+    SA4 = 1.0 / square(SA3);
+    SA5_inv = square(SA2) * SA4 + 1;
+    canUseA = abs(SA5_inv) > 1e-6f;
+  }
+
+  bool canUseB = false;
+  const double SB0 = 2 * q0;
+  const double SB1 = 2 * q1;
+  const double SB2 = -SB0 * q3 + SB1 * q2;
+  const double SB4 = -square(q0) + square(q1) - square(q2) + square(q3);
+  double SB3, SB5_inv;
+  if (square(SB2) > 1e-6) {
+    SB3 = 1.0 / square(SB2);
+    SB5_inv = SB3 * square(SB4) + 1;
+    canUseB = abs(SB5_inv) > 1e-6f;
+  }
+
+  Eigen::Vector4d H_YAW;
+
+  if (canUseA && (!canUseB || abs(SA5_inv) >= abs(SB5_inv))) {
+    const double SA5 = 1.0 / SA5_inv;
+    const double SA6 = 1.0 / SA3;
+    const double SA7 = SA2 * SA4;
+    const double SA8 = 2 * SA7;
+    const double SA9 = 2 * SA6;
+
+    H_YAW(0) = SA5 * (SA0 * SA6 - SA8 * q0);
+    H_YAW(1) = SA5 * (-SA1 * SA6 + SA8 * q1);
+    H_YAW(2) = SA5 * (-SA1 * SA7 - SA9 * q1);
+    H_YAW(3) = SA5 * (SA0 * SA7 + SA9 * q0);
+  } else if (canUseB && (!canUseA || abs(SB5_inv) > abs(SA5_inv))) {
+    const double SB5 = 1.0 / SB5_inv;
+    const double SB6 = 1.0 / SB2;
+    const double SB7 = SB3 * SB4;
+    const double SB8 = 2 * SB7;
+    const double SB9 = 2 * SB6;
+
+    H_YAW(0) = -SB5 * (-SB0 * SB6 + SB8 * q3);
+    H_YAW(1) = -SB5 * (SB1 * SB6 - SB8 * q2);
+    H_YAW(2) = -SB5 * (-SB1 * SB7 - SB9 * q2);
+    H_YAW(3) = -SB5 * (SB0 * SB7 + SB9 * q3);
+  } else {
+    return;
+  }
+
+  double innovation;
+  if (zero_innovation) {
+    innovation = 0.0f;
+  } else {
+    // calculate the the innovation and wrap to the interval between +-pi
+    innovation =
+        wrap_pi(atan2(-R_to_earth_(0, 1), R_to_earth_(1, 1)) - measurement);
+  }
+
+  // define the innovation gate size
+  double innov_gate = std::max<double>(settings_.heading_innovation_gate, 1.0);
+
+  // Update the quaternion states and covariance matrix
+  UpdateQuaternion(innovation, R_YAW, innov_gate, H_YAW);
+}
+
+void Ekf::UpdateQuaternion(const double innovation, const double variance,
+                           const double gate_sigma,
+                           const Eigen::Vector4d &yaw_jacobian) {
+  heading_innovation_ = variance;
+  for (int row = 0; row < 4; ++row) {
+    double tmp = 0.0;
+    for (int col = 0; col < 4; ++col) {
+      tmp += P_(row, col) * yaw_jacobian(col);
+    }
+    heading_innovation_var_ += yaw_jacobian(row) * tmp;
+  }
+  double heading_innovation_var_inv;
+
+  if (heading_innovation_var_ >= variance) {
+    fault_status_.flags.bad_heading = false;
+    heading_innovation_var_inv = 1.0 / heading_innovation_var_;
+  } else {
+    fault_status_.flags.bad_heading = true;
+    InitCovariance();
+    // TODO: log this!
+    return;
+  }
+  StateVectord Kfusion;
+  for (int row = 0; row < 16; ++row) {
+    for (int col = 0; col < 4; ++col) {
+      Kfusion(row) += P_(row, col) * yaw_jacobian(col);
+    }
+    Kfusion(row) *= heading_innovation_var_inv;
+  }
+  yaw_test_ratio_ =
+      square(innovation) / (square(gate_sigma) * heading_innovation_var_);
+  if (yaw_test_ratio_ > 1.0) {
+    innovation_check_status_.flags.reject_yaw = true;
+    if (!control_status_.flags.in_air &&
+        IsTimedOut(time_last_in_air_us_, (uint64_t)5e6)) {
+      double gate_limit = sqrt((square(gate_sigma) * heading_innovation_var_));
+      heading_innovation_ = clip(innovation, -gate_limit, gate_limit);
+      ResetYawGyroBiasCov();
+    } else {
+      return;
+    }
+  } else {
+    innovation_check_status_.flags.reject_yaw = false;
+    heading_innovation_ = innovation;
+  }
+
+  StateMatrixd KHP;
+  double KH[4];
+  for (int row = 0; row < StateIndex::NumStates; row++) {
+    KH[0] = Kfusion(row) * yaw_jacobian(0);
+    KH[1] = Kfusion(row) * yaw_jacobian(1);
+    KH[2] = Kfusion(row) * yaw_jacobian(2);
+    KH[3] = Kfusion(row) * yaw_jacobian(3);
+
+    for (int column = 0; column < StateIndex::NumStates; column++) {
+      double tmp = KH[0] * P_(0, column);
+      tmp += KH[1] * P_(1, column);
+      tmp += KH[2] * P_(2, column);
+      tmp += KH[3] * P_(3, column);
+      KHP(row, column) = tmp;
+    }
+  }
+  const bool healthy = CheckAndFixCovarianceUpdate(KHP);
+  fault_status_.flags.bad_heading = !healthy;
+  if (healthy) {
+    P_ -= KHP;
+    FixCovarianceErrors(true);
+    Fuse(Kfusion, heading_innovation_);
+  }
+}
+
 bool Ekf::CheckAndFixCovarianceUpdate(const StateMatrixd &KHP) {
   bool healthy = true;
   for (int i = 0; i < kNumStates; ++i) {
@@ -1281,7 +1554,7 @@ bool Ekf::FuseHorizontalPosition(const Eigen::Vector3d &innovation,
                                  const Eigen::Vector3d &observation_var,
                                  Eigen::Vector3d &innovation_var,
                                  Eigen::Vector2d &test_ratio,
-                                 bool inhibit_gate) {
+                                 bool inhibit_gate = false) {
   innovation_var(0) = P_(7, 7) + observation_var(0);
   innovation_var(1) = P_(8, 8) + observation_var(1);
   test_ratio(0) = std::max(
