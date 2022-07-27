@@ -18,7 +18,7 @@ symbol_mapping = dict(
     delta_angle_y_var=dict(c='delta_angle_y_var',
                            latex='\sigma^2_{\Delta \Omega_y}'),
     delta_angle_z_var=dict(c='delta_angle_z_var',
-                           latex='\sigma^2_{\Delta \Omega_z'),
+                           latex='\sigma^2_{\Delta \Omega_z}'),
     delta_angle_var=dict(c='delta_angle_var',
                          latex='\sigma^2_{\Delta \Omega}'),
     delta_velocity_x_var=dict(c='delta_velocity_x_var',
@@ -157,6 +157,10 @@ for row in range(sympy.shape(P_new)[0]):
     for col in range(sympy.shape(P_new)[1]):
         if row > col:
             P_new[row, col] = 0
+with open("test.tex", "w") as f:
+    f.write(sympy.latex(P_new))
+
+
 
 P_new_simple = sympy.cse(P_new, sympy.utilities.iterables.numbered_symbols(prefix='tmp'), optimizations='basic')
 
