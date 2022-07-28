@@ -19,7 +19,11 @@ endif()
 find_package(ament_cmake REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
+find_package(rclcpp REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(hippo_interfaces REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -33,7 +37,7 @@ if(BUILD_TESTING)
 endif()
 
 include_directories(include)
-add_executable(estimator src/estimator.cpp)
+add_executable(estimator src/estimator.cpp src/interface.cpp src/ekf.cpp src/util.cpp src/ekf_util.cpp)
 
 # target_include_directories(interface
 #     PUBLIC
@@ -41,7 +45,7 @@ add_executable(estimator src/estimator.cpp)
 #     $<INSTALL_INTERFACE:include>)
 # 
 # ament_export_targets(interface HAS_LIBRARY_TARGET)
-# ament_target_dependencies(interface Eigen3)
+ament_target_dependencies(estimator rclcpp Eigen3 hippo_interfaces sensor_msgs geometry_msgs)
 
 install(
     DIRECTORY launch
@@ -49,7 +53,7 @@ install(
 )
 install(
     TARGETS
-    # estimator
+    estimator
     DESTINATION lib/${PROJECT_NAME}
 )
 ament_package()
