@@ -1,6 +1,85 @@
 #include <state_estimation/ekf.h>
 #include <state_estimation/util.h>
 
+void Ekf::AlignOutputFilter() {
+  const OutputSample &output_delayed = output_buffer_.Oldest();
+  Eigen::Quaterniond delta_quat(state_.orientation *
+                                output_delayed.orientation.inverse());
+  delta_quat.normalize();
+
+  const Eigen::Vector3d delta_velocity =
+      state_.velocity - output_delayed.velocity;
+  const Eigen::Vector3d delta_position =
+      state_.position - output_delayed.position;
+
+  for (int i = 0; i < output_buffer_.Length(); ++i) {
+    output_buffer_[i].orientation = delta_quat * output_buffer_[i].orientation;
+    output_buffer_[i].orientation.normalize();
+    output_buffer_[i].velocity += delta_velocity;
+    output_buffer_[i].position += delta_position;
+  }
+  output_new_ = output_buffer_.Newest();
+}
+
+void Ekf::ConstrainStates() {
+  state_.orientation = ClipQuaternion(state_.orientation, -1.0, 1.0);
+  state_.velocity = ClipMatrix(state_.velocity, -settings_.velocity_limit,
+                               settings_.velocity_limit);
+  state_.position = ClipMatrix(state_.position, settings_.position_lower_limit,
+                               settings_.position_upper_limit);
+  state_.delta_angle_bias =
+      ClipMatrix(state_.delta_angle_bias, -settings_.delta_angle_bias_limit,
+                 settings_.delta_angle_bias_limit);
+  const double delta_velocity_bias_limit =
+      settings_.imu_bias_estimation.accel_bias_magnitude_limit * dt_average_;
+  state_.delta_velocity_bias =
+      ClipMatrix(state_.delta_velocity_bias, -delta_velocity_bias_limit,
+                 delta_velocity_bias_limit);
+}
+
+void Ekf::VisionPositionInnovation(double position[3]) const {
+  position[0] = vision_position_innovation_(0);
+  position[1] = vision_position_innovation_(1);
+  position[2] = vision_position_innovation_(2);
+}
+
+void Ekf::VisionPositionInnovationVar(double position[3]) const {
+  position[0] = vision_position_innovation_var_(0);
+  position[1] = vision_position_innovation_var_(1);
+  position[2] = vision_position_innovation_var_(2);
+}
+
+void Ekf::VisionPositionInnovationRatio(double &horizonal,
+                                        double &vertical) const {
+  horizonal = vision_position_test_ratio_(0);
+  vertical = vision_position_test_ratio_(1);
+}
+
+void Ekf::BaroHeightInnovation(double &baro_height_innovation) const {
+  baro_height_innovation = baro_height_innovation_(2);
+}
+
+void Ekf::BaroHeightInnovationVar(double &baro_height_innovation_var) const {
+  baro_height_innovation_var = baro_height_innovation_var_(2);
+}
+
+void Ekf::BaroHeightInnovationRatio(
+    double &baro_height_innovation_ratio) const {
+  baro_height_innovation_ratio = baro_height_test_ratio_(1);
+}
+
+void Ekf::HeadingInnovation(double &heading_innovation) const {
+  heading_innovation = heading_innovation_;
+}
+
+void Ekf::HeadingInnovationVar(double &heading_innovation_var) const {
+  heading_innovation_var = heading_innovation_var_;
+}
+
+void Ekf::HeadingInnovationRatio(double &heading_innovation_ratio) const {
+  heading_innovation_ratio = yaw_test_ratio_;
+}
+
 void Ekf::SetControlBaroHeight() {
   control_status_.flags.baro_height = true;
   control_status_.flags.vision_height = false;
@@ -60,7 +139,8 @@ Eigen::Vector3d Ekf::CalcRotationVectorVariances() {
 
 void Ekf::ResetYawGyroBiasCov() {
   constexpr auto index = StateIndex::delta_angle_bias_z;
-  const double init_delta_angle_bias_var = square(settings_.initial_gyro_bias * dt_average_);
+  const double init_delta_angle_bias_var =
+      square(settings_.initial_gyro_bias * dt_average_);
   P_.row(index).setZero();
   P_.col(index).setZero();
   P_(index, index) = init_delta_angle_bias_var;
@@ -71,19 +151,23 @@ void Ekf::ResetHeight() {
     const BaroSample &baro_newest = baro_buffer_.Newest();
     if (!baro_height_faulty_) {
       ResetVerticalPositionTo(baro_newest.height + baro_height_offset_);
+      EKF_INFO("Resetting height to barometer data: %.2f", baro_newest.height + baro_height_offset_);
       P_.row(StateIndex::position_z).setZero();
       P_.col(StateIndex::position_z).setZero();
       P_(StateIndex::position_z, StateIndex::position_z) =
           square(settings_.baro_noise);
     } else {
       // TODO: reset to some old estimate?
+      EKF_WARN("Trying to reset height to barometer data, but barometer data is faulty!");
     }
   } else if (control_status_.flags.vision_height) {
     const VisionSample &vision_newest = vision_buffer_.Newest();
     if (vision_newest.time_us >= vision_sample_delayed_.time_us) {
       ResetVerticalPositionTo(vision_newest.position(2));
+      EKF_INFO("Resetting height to newest vision data: %.2f", vision_newest.position.z());
     } else {
       ResetVerticalPositionTo(vision_sample_delayed_.position(2));
+      EKF_INFO("Resetting height to delayed vision data: %.2f", vision_sample_delayed_.position.z());
     }
   }
 
@@ -93,9 +177,7 @@ void Ekf::ResetHeight() {
   P_(StateIndex::velocity_z, StateIndex::velocity_z) = 10.0;
 }
 
-void Ekf::ResetVelocity() {
-  ResetHorizontalVelocityToZero();
-}
+void Ekf::ResetVelocity() { ResetHorizontalVelocityToZero(); }
 
 void Ekf::ResetHorizontalVelocityToZero() {
   ResetHorizontalVelocityTo(Eigen::Vector2d(0.0, 0.0));
@@ -103,10 +185,11 @@ void Ekf::ResetHorizontalVelocityToZero() {
 }
 
 void Ekf::ResetHorizontalVelocityTo(const Eigen::Vector2d &velocity) {
-  const Eigen::Vector2d delta_velocity = velocity - Eigen::Vector2d(state_.velocity);
+  const Eigen::Vector2d delta_velocity =
+      velocity - Eigen::Vector2d(state_.velocity.x(), state_.velocity.y());
   state_.velocity.x() = velocity.x();
   state_.velocity.y() = velocity.y();
-  for (int i=0; i<output_buffer_.Length(); ++i) {
+  for (int i = 0; i < output_buffer_.Length(); ++i) {
     output_buffer_[i].velocity.x() += delta_velocity.x();
     output_buffer_[i].velocity.y() += delta_velocity.y();
   }
@@ -155,11 +238,13 @@ void Ekf::StartBaroHeightFusion() {
 }
 
 void Ekf::StartVisionPositionFusion() {
+  EKF_INFO("Starting vision position fusion.");
   control_status_.flags.vision_position = true;
   ResetHorizontalPosition();
 }
 
 void Ekf::StartVisionYawFusion() {
+  EKF_INFO("Starting vision yaw fusion");
   control_status_.flags.vision_yaw = true;
 }
 
@@ -169,6 +254,7 @@ void Ekf::StopVisionFusion() {
 }
 
 void Ekf::StopVisionPositionFusion() {
+  EKF_INFO("Stopping vision position fusion.");
   control_status_.flags.vision_position = false;
   vision_position_innovation_.setZero();
   vision_position_innovation_var_.setZero();
@@ -176,6 +262,7 @@ void Ekf::StopVisionPositionFusion() {
 }
 
 void Ekf::StopVisionYawFusion() {
+  EKF_INFO("Stopping vision yaw fusion.");
   control_status_.flags.vision_yaw = false;
 }
 
@@ -227,13 +314,14 @@ void Ekf::ResetHorizontalPosition() {
 
 void Ekf::ResetHorizontalPositionToVision() {
   Eigen::Vector3d vision_position = vision_sample_delayed_.position;
-  ResetHorizontalPositionTo(Eigen::Vector2d(vision_position));
-  UncorrelateHorizontalPositionSetTo(Eigen::Vector2d(vision_sample_delayed_.position_variance));
+  ResetHorizontalPositionTo(Eigen::Vector2d(vision_position.head<2>()));
+  UncorrelateHorizontalPositionSetTo(
+      Eigen::Vector2d(vision_sample_delayed_.position_variance.head<2>()));
 }
 
 void Ekf::ResetHorizontalPositionTo(const Eigen::Vector2d &position) {
-  const Eigen::Vector2d delta_position(position -
-                                       Eigen::Vector2d(state_.position));
+  const Eigen::Vector2d delta_position(
+      position - Eigen::Vector2d(state_.position.head<2>()));
   state_.position(0) = position(0);
   state_.position(1) = position(1);
   for (int i = 0; i < output_buffer_.Length(); ++i) {

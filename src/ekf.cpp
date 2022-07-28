@@ -10,6 +10,7 @@ bool Ekf::Init(uint64_t timestamp_us) {
 }
 
 void Ekf::Reset() {
+  EKF_INFO("Resetting");
   state_.velocity.setZero();
   state_.position.setZero();
   state_.delta_angle_bias.setZero();
@@ -34,6 +35,9 @@ void Ekf::Reset() {
 bool Ekf::InitFilter() {
   const ImuSample &imu_init = imu_buffer_.Newest();
   if (imu_init.delta_velocity_dt < 1e-4 || imu_init.delta_angle_dt < 1e-4) {
+    EKF_WARN(
+        "IMU update frequency too high. If this happens regularly it indicates "
+        "an error.");
     return false;
   }
 
@@ -53,22 +57,29 @@ bool Ekf::InitFilter() {
     if (baro_sample_delayed_.time_us != 0) {
       // TODO: change this automatic height offset to some more reasonable
       // method. For example setting it manually.
-      if (baro_counter_ == 0) {
-        baro_height_offset_ = baro_sample_delayed_.height;
-      } else {
-        baro_height_offset_ =
-            0.9 * baro_height_offset_ + 0.1 * baro_sample_delayed_.height;
-      }
+      baro_height_offset_ = settings_.baro_height_offset;
+      // if (baro_counter_ == 0) {
+      //   baro_height_offset_ = baro_sample_delayed_.height;
+      // } else {
+      //   baro_height_offset_ =
+      //       0.9 * baro_height_offset_ + 0.1 * baro_sample_delayed_.height;
+      // }
 
       baro_counter_++;
+    } else {
+      EKF_WARN("Delayed baro sample has invalid timestamp!");
     }
   }
 
   if (baro_counter_ < observation_buffer_length_) {
+    EKF_INFO_ONCE("Waiting for more barometric data.");
     return false;
+  } else {
+    EKF_INFO_ONCE("Got sufficient amount of baro samples.");
   }
 
   if (!InitTilt()) {
+    EKF_WARN("Tilt could not be initialized");
     return false;
   }
   // TODO: reset fusion times to latest imu
@@ -92,7 +103,9 @@ bool Ekf::InitTilt() {
   // TODO: check for correctness. also see:
   // https://www.nxp.com/files-static/sensors/doc/app_note/AN3461.pdf
   const double pitch = asin(gravity_body(0));
-  const double roll = atan2(-gravity_body(1), -gravity_body(2));
+  const double roll = atan2(-gravity_body(1), gravity_body(2));
+  EKF_INFO("Initializing tilt with roll=%.2f, pitch=%.2f", pitch * 180.0 / M_PI,
+           roll * 180 / M_PI);
   const auto unit_x = Eigen::Vector3d::UnitX();
   const auto unit_y = Eigen::Vector3d::UnitY();
   const auto unit_z = Eigen::Vector3d::UnitZ();
@@ -100,6 +113,9 @@ bool Ekf::InitTilt() {
                        Eigen::AngleAxisd(pitch, unit_y) *
                        Eigen::AngleAxisd(0.0, unit_z);
   state_.orientation.normalize();
+  Eigen::Vector3d euler =
+      state_.orientation.toRotationMatrix().eulerAngles(0, 1, 2);
+  EKF_INFO("Checking: roll=%.2f, pitch=%.2f", euler.x(), euler.y());
   R_to_earth_ = state_.orientation.matrix();
   return true;
 }
@@ -169,16 +185,27 @@ void Ekf::SetZeroQuaternionCovariance() {
 void Ekf::PredictState() {
   Eigen::Vector3d delta_angle_corrected =
       imu_sample_delayed_.delta_angle - state_.delta_angle_bias;
-  const Eigen::Quaterniond delta_quat(Eigen::AngleAxisd{delta_angle_corrected});
+  // TODO: check if correction necessary.
+  // see:
+  // https://github.com/PX4/PX4-ECL/blob/b3fed06fe822d08d19ab1d2c2f8daf7b7d21951c/EKF/ekf.cpp#L265
+
+  // TODO: is this correct?
+  // see: https://stanford.edu/class/ee267/lectures/lecture10.pdf p.26
+  // but this is not the way the original code calculates it.
+  const Eigen::Quaterniond delta_quat = QuaternionFromDeltaAngle(
+      delta_angle_corrected, imu_sample_delayed_.delta_angle_dt);
+
   state_.orientation = (state_.orientation * delta_quat).normalized();
 
   const Eigen::Vector3d delta_velocity_corrected =
       imu_sample_delayed_.delta_velocity - state_.delta_velocity_bias;
 
   const Eigen::Vector3d velocity_last = state_.velocity;
-  state_.velocity += delta_velocity_corrected;
+  // TODO: check if delta velocity corrected still behaves weird.
+  // state_.velocity += delta_velocity_corrected;
+  state_.velocity += imu_sample_delayed_.delta_velocity;
   // TODO: check if sign is correct
-  state_.velocity(2) += kGravity * imu_sample_delayed_.delta_velocity_dt;
+  state_.velocity(2) -= kGravity * imu_sample_delayed_.delta_velocity_dt;
 
   // trapezoidal integration
   state_.position += (velocity_last + state_.velocity) *
@@ -1080,7 +1107,8 @@ void Ekf::CalculateOutputState(const ImuSample &imu_sample) {
 
   yaw_rate_lpf_ef_ = 0.95 * yaw_rate_lpf_ef_ +
                      0.05 * spin_delta_angle_D / imu_sample.delta_angle_dt;
-  const Eigen::Quaterniond delta_quat(Eigen::AngleAxisd{delta_angle});
+  const Eigen::Quaterniond delta_quat =
+      QuaternionFromDeltaAngle(delta_angle, imu_sample.delta_angle_dt);
   output_new_.time_us = imu_sample.time_us;
   output_new_.orientation = output_new_.orientation * delta_quat;
   output_new_.orientation.normalize();
@@ -1167,16 +1195,20 @@ void Ekf::CorrectOutputBuffer(const Eigen::Vector3d &velocity_correction,
 }
 
 void Ekf::Fuse(const StateVectord &K, double innovation) {
-  Eigen::Vector4d tmp = K.block<4, 1>(0, 0) * innovation;
-  state_.orientation.w() = tmp(0);
-  state_.orientation.x() = tmp(1);
-  state_.orientation.y() = tmp(2);
-  state_.orientation.z() = tmp(3);
+  // if you ask yourself why all the signs are negative: because the innovation
+  // was computed h(state) - measurement instead of the other way round.
+  Eigen::Vector4d tmp = K.block<4, 1>(StateIndex::qw, 0) * innovation;
+  state_.orientation.w() -= tmp(0);
+  state_.orientation.x() -= tmp(1);
+  state_.orientation.y() -= tmp(2);
+  state_.orientation.z() -= tmp(3);
   state_.orientation.normalize();
-  state_.velocity -= K.block<3, 1>(4, 0) * innovation;
-  state_.position -= K.block<3, 1>(7, 0) * innovation;
-  state_.delta_angle_bias -= K.block<3, 1>(10, 0) * innovation;
-  state_.delta_velocity_bias -= K.block<3, 1>(13, 0) * innovation;
+  state_.velocity -= K.block<3, 1>(StateIndex::velocity_x, 0) * innovation;
+  state_.position -= K.block<3, 1>(StateIndex::position_x, 0) * innovation;
+  state_.delta_angle_bias -=
+      K.block<3, 1>(StateIndex::delta_angle_bias_x, 0) * innovation;
+  state_.delta_velocity_bias -=
+      K.block<3, 1>(StateIndex::delta_velocity_bias_x, 0) * innovation;
 }
 
 void Ekf::FuseHeading() {
@@ -1609,7 +1641,8 @@ void Ekf::FuseVelocityPositionHeight(const double innovation,
                                      const double innovation_var,
                                      const int observation_index) {
   StateVectord K_fusion;
-  const int state_index = observation_index + 4;
+  // offset the index by the quaternion, so 0 starts at the velocity.
+  const int state_index = observation_index + StateIndex::velocity_x;
   for (int row = 0; row < kNumStates; ++row) {
     K_fusion(row) = P_(row, state_index) / innovation_var;
   }
@@ -1752,6 +1785,9 @@ void Ekf::UpdateHeightFusion() {
         fuse_height = true;
       }
       break;
+    default:
+      EKF_WARN("No input for height fusion selected.");
+      break;
   }
   UpdateBaroHeightOffset();
 
@@ -1785,6 +1821,8 @@ void Ekf::UpdateHeightFusion() {
                            vision_observation_var,
                            vision_position_innovation_var_,
                            vision_position_test_ratio_);
+    } else {
+      EKF_WARN("Trying to fuse height, but no input choice flag is set.");
     }
   }
 }

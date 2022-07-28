@@ -9,13 +9,17 @@ class Interface {
   void SetImuData(const ImuSample &imu_sample);
   void SetBaroData(const BaroSample &baro_sample);
   void SetVisionData(const VisionSample &vision_sample);
-  Eigen::Vector3d Position();
+
+  const decltype(FaultStatus::flags) &FaultStatusFlag() const {
+    return fault_status_.flags;
+  }
+  Settings settings_;
+
 
  protected:
   Interface() = default;
   virtual ~Interface() = default;
   virtual bool Init(uint64_t timestamp_us) = 0;
-  Settings settings_;
   int imu_buffer_length_{0};
   int observation_buffer_length_{0};
   double imu_dt_average_{0.0};
@@ -39,10 +43,10 @@ class Interface {
   bool imu_updated_{false};
   bool initialized_{false};
 
-  RingBuffer<ImuSample> imu_buffer_{100};
-  RingBuffer<OutputSample> output_buffer_{100};
-  RingBuffer<BaroSample> baro_buffer_{100};
-  RingBuffer<VisionSample> vision_buffer_{100};
+  RingBuffer<ImuSample> imu_buffer_;
+  RingBuffer<OutputSample> output_buffer_;
+  RingBuffer<BaroSample> baro_buffer_;
+  RingBuffer<VisionSample> vision_buffer_;
 
   uint64_t time_last_imu_{0};
   uint64_t time_last_baro_{0};

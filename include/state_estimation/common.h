@@ -3,6 +3,14 @@
 #include <stdint.h>
 
 #include <eigen3/Eigen/Dense>
+#include <rclcpp/rclcpp.hpp>
+
+#define LOGGER_NAME "Ekf"
+#define EKF_INFO_ONCE(...) RCLCPP_INFO_ONCE(rclcpp::get_logger(LOGGER_NAME), ##__VA_ARGS__)
+#define EKF_DEBUG(...) RCLCPP_DEBUG(rclcpp::get_logger(LOGGER_NAME), ##__VA_ARGS__)
+#define EKF_INFO(...) RCLCPP_INFO(rclcpp::get_logger(LOGGER_NAME), ##__VA_ARGS__)
+#define EKF_WARN(...) RCLCPP_WARN(rclcpp::get_logger(LOGGER_NAME), ##__VA_ARGS__)
+#define EKF_ERROR(...) RCLCPP_ERROR(rclcpp::get_logger(LOGGER_NAME), ##__VA_ARGS__)
 
 constexpr uint64_t kVisionMaxIntervalUs = (uint64_t)200e3;
 constexpr uint64_t kBaroMaxIntervalUs = (uint64_t)200e3;
@@ -113,7 +121,7 @@ struct Settings {
   uint64_t vision_delay_us{(uint64_t)100e3};
   uint64_t baro_delay_us{(uint64_t)0};
 
-  HeightMode height_mode;
+  HeightMode height_mode{HeightMode::kBaro};
 
   double gyro_noise{1.5e-2};
   double accel_noise{3.5e-1};
@@ -123,6 +131,7 @@ struct Settings {
 
   double baro_noise{0.02};
   double baro_innovation_gate{5.0};
+  double baro_height_offset{0.0};
 
   uint64_t bad_accel_reset_delay_us{500000};
 
@@ -139,9 +148,12 @@ struct Settings {
 
   double vision_innovation_gate{5.0};
 
-  Eigen::Vector3d position_upper_limit = {2.0, 4.0, 0.5};
-  Eigen::Vector3d position_lower_limit = {0.0, 0.0, -2.0};
-  double velocity_limit{15.0};
+  //////////////////////////////////////////////////////////////////////////////
+  // state limits
+  Eigen::Vector3d position_upper_limit = {2.0, 4.0, 0.5}; ///< constrains the valid position values of the delayed ekf state.
+  Eigen::Vector3d position_lower_limit = {0.0, 0.0, -2.0}; ///< constrains the valid position values of the delayed ekf state.
+  double velocity_limit{15.0}; ///< constrains the valid velocity values of the delayed ekf state.
+  double delta_angle_bias_limit{5*M_PI * kFilterUpdatePeriodUs * 1e-6};
 
   Eigen::Vector3d velocity_noise = {0.1, 0.1, 0.1};
   Eigen::Vector3d position_noise = {0.1, 0.1, 0.1};
@@ -154,42 +166,3 @@ struct Settings {
 
 };
 
-template <typename T>
-T clip(const T &n, const T &lower, const T &upper) {
-  return std::max(lower, std::min(n, upper));
-}
-
-double kahan_summation(double sum, double input, double &accumulator) {
-  const double y = input - accumulator;
-  const double t = sum + y;
-  accumulator = (t - sum) - y;
-  return t;
-}
-
-inline double square(double a) {
-  return a * a;
-}
-
-template<typename Floating>
-Floating wrap_floating(Floating x, Floating low, Floating high) {
-  if (low <= x && x < high) {
-    return x;
-  }
-  const auto range = high - low;
-  const auto inv_range = Floating(1) / range;
-  const auto num_wraps = floor((x - low) * inv_range);
-  return x - range * num_wraps;
-}
-
-inline double wrap(double x, double low, double high) {
-  return wrap_floating(x, low, high);
-}
-
-inline float wrap(float x, float low, float high) {
-  return wrap_floating(x, low, high);
-}
-
-template<typename Type>
-Type wrap_pi(Type x) {
-  return wrap(x, Type(-M_PI), Type(M_PI))
-}

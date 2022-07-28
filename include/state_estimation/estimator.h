@@ -2,13 +2,26 @@
 #include <state_estimation/ekf.h>
 
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+#include <geometry_msgs/msg/quaternion_stamped.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
+#include <hippo_interfaces/msg/estimator_innovation.hpp>
+#include <hippo_interfaces/msg/estimator_sensor_bias.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/fluid_pressure.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 
+struct EstimatorInnovation {
+  uint64_t time_us;
+  uint64_t time_sample_us;
+  double vision_position[3];
+  double baro_vertical_position;
+  double heading;
+};
+
 class Estimator final : public rclcpp::Node {
  public:
   Estimator();
+  void InitPublisher();
   //////////////////////////////////////////////////////////////////////////////
   // message callbacks
   //////////////////////////////////////////////////////////////////////////////
@@ -20,9 +33,11 @@ class Estimator final : public rclcpp::Node {
   void BaroUpdate();
   void VisionUpdate();
 
-  void PublishAttitude();
-  void PublishPose();
-  void PublishSensorBias();
+  void PublishAttitude(const rclcpp::Time &stamp);
+  void PublishPose(const rclcpp::Time &stamp);
+  void PublishSensorBias(const rclcpp::Time &stamp);
+  void PublishInnovations(const rclcpp::Time &stamp);
+  void PublishVelocity(const rclcpp::Time &stamp);
 
   void ResetImuWatchdog() {
     imu_watchdog_.reset();
@@ -33,6 +48,15 @@ class Estimator final : public rclcpp::Node {
   void Run();
 
  private:
+  rclcpp::Publisher<hippo_interfaces::msg::EstimatorInnovation>::SharedPtr
+      innovation_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
+      pose_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::QuaternionStamped>::SharedPtr
+      attitude_pub_;
+  rclcpp::Publisher<hippo_interfaces::msg::EstimatorSensorBias>::SharedPtr
+      sensor_bias_pub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   rclcpp::Subscription<sensor_msgs::msg::FluidPressure>::SharedPtr baro_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
@@ -44,6 +68,8 @@ class Estimator final : public rclcpp::Node {
   bool baro_updated_{false};
   bool vision_updated_{false};
   BaroSample baro_sample_;
+  Eigen::Vector3d gyro_bias_published_;
+  Eigen::Vector3d accel_bias_published_;
   VisionSample vision_sample_;
   struct EstimatorParams {
     double baro_atmo_pressure = 101325.0;

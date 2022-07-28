@@ -1,5 +1,7 @@
-#include <cstddef>
+#pragma once
 #include <stdint.h>
+#include <state_estimation/common.h>
+#include <cstddef>
 
 template <typename T>
 class RingBuffer {
@@ -63,6 +65,7 @@ class RingBuffer {
   const T &Newest() const { return buffer_[head_]; }
   const T &Oldest() const { return buffer_[tail_]; }
   int OldestIndex() const { return tail_; }
+  int NewestIndex() const { return head_; }
 
   bool PopFirstOlderThan(const uint64_t &timestamp_us, T *sample) {
     for (int i = 0; i < size_; ++i) {
@@ -72,7 +75,7 @@ class RingBuffer {
       index = index < 0 ? (index + size_) : index;
 
       if ((timestamp_us >= buffer_[index].time_us) &&
-          (timestamp_us < buffer_[index].time_us + (uint64_t)10e6)) {
+          (timestamp_us < buffer_[index].time_us + (uint64_t)1e6)) {
         *sample = buffer_[index];
         if (index == head_) {
           tail_ = head_;

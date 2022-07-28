@@ -23,7 +23,7 @@ static constexpr int delta_velocity_bias_x = 13;
 static constexpr int delta_velocity_bias_y = 14;
 static constexpr int delta_velocity_bias_z = 15;
 static constexpr int NumStates = 16;
-};  // namespace StateIndex
+}  // namespace StateIndex
 
 class Ekf final : public Interface {
  public:
@@ -60,7 +60,9 @@ class Ekf final : public Interface {
   void FuseHeading();
   void FuseYaw321(double yaw, double yaw_var, bool zero_innovation);
   void FuseYaw312(double yaw, double yaw_var, bool zero_innovation);
-  void UpdateQuaternion(const double innovation, const double variance, const double gate_sigma, const Eigen::Vector4d &yaw_jacobian);
+  void UpdateQuaternion(const double innovation, const double variance,
+                        const double gate_sigma,
+                        const Eigen::Vector4d &yaw_jacobian);
   void FixCovarianceErrors(bool force_symmetry);
   void SetVelocityPositionFaultStatus(const int index, const bool is_bad);
   bool InitTilt();
@@ -71,10 +73,60 @@ class Ekf final : public Interface {
   void UncorrelateQuaternion();
   void UncorrelateHorizontalPositionSetTo(const Eigen::Vector2d &position);
   void UncorrelateHorizontalVelocitySetTo(const Eigen::Vector2d &velocity);
-  void AlignOutputFilter();
-  void ConstrainStates();
   bool CheckAndFixCovarianceUpdate(const StateMatrixd &KHP);
   Eigen::Vector3d CalcRotationVectorVariances();
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Innovation Getter /////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////
+
+  // Vision
+  void VisionPositionInnovation(double position[3]) const;
+  void VisionPositionInnovationVar(double position[3]) const;
+  void VisionPositionInnovationRatio(double &horizonal, double &vertical) const;
+  // Baro
+  void BaroHeightInnovation(double &baro_height_innovation) const;
+  void BaroHeightInnovationVar(double &baro_height_innovation_var) const;
+  void BaroHeightInnovationRatio(double &baro_height_innovation_ratio) const;
+
+  // Heading
+  void HeadingInnovation(double &heading_innovation) const;
+  void HeadingInnovationVar(double &heading_innovation_var) const;
+  void HeadingInnovationRatio(double &heading_innovation_ratio) const;
+
+  //////////////////////////////////////////////////////////////////////////////
+  // State Getter //////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////
+  Eigen::Quaterniond Orientation() const { return output_new_.orientation; }
+  Eigen::Vector3d Position() const { return output_new_.position; }
+  Eigen::Vector3d GyroBias() const {
+    return state_.delta_angle_bias / dt_average_;
+  }
+  Eigen::Vector3d AccelerationBias() const {
+    return state_.delta_velocity_bias / dt_average_;
+  }
+  Eigen::Vector3d GyroBiasVariance() const {
+    constexpr auto x = StateIndex::delta_angle_bias_x;
+    constexpr auto y = StateIndex::delta_angle_bias_y;
+    constexpr auto z = StateIndex::delta_angle_bias_z;
+    return Eigen::Vector3d{P_(x, x), P_(y, y), P_(z, z)} / dt_average_;
+  }
+  Eigen::Vector3d AccelerationBiasVariance() const {
+    constexpr auto x = StateIndex::delta_velocity_bias_x;
+    constexpr auto y = StateIndex::delta_velocity_bias_y;
+    constexpr auto z = StateIndex::delta_velocity_bias_z;
+    return Eigen::Vector3d{P_(x, x), P_(y, y), P_(z, z)} / dt_average_;
+  }
+  Eigen::Vector3d Velocity() const {
+    return Eigen::Vector3d(output_new_.velocity);
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Helper ////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////
+
+  void AlignOutputFilter();
+  void ConstrainStates();
   void UpdateSensorFusion();
   void UpdateVisionFusion();
   void UpdateHeightSensorTimeout();
@@ -103,6 +155,13 @@ class Ekf final : public Interface {
   void StopVisionPositionFusion();
   void StopVisionYawFusion();
   void CheckVerticalAccelHealth();
+  inline Eigen::Quaterniond QuaternionFromDeltaAngle(
+      const Eigen::Vector3d &delta_angle, double dt) {
+    const Eigen::Vector3d axis = Eigen::Vector3d(delta_angle).normalized();
+    const double angle = dt * delta_angle.norm();
+    return Eigen::Quaterniond(Eigen::AngleAxisd(angle, axis));
+  }
+
   bool IsTimedOut(uint64_t timestamp_us, uint64_t timeout_period_us) {
     return (timestamp_us + timeout_period_us) < time_last_imu_;
   }
@@ -140,7 +199,7 @@ class Ekf final : public Interface {
   void Reset();
   bool InitFilter();
 
-  StateSample state_{};
+  StateSample state_{};  ///< Filtered state at delayed time horizon.
   bool filter_initialized_{false};
 
   bool baro_data_ready_{false};
