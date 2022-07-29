@@ -46,7 +46,7 @@ void MakeBlockSymmetric(Index first) {
 
   if (Width > 1) {
     for (Index row = first + 1; row < first + Width; ++row) {
-        for (Index col = first; col < row; ++row) {
+        for (Index col = first; col < row; ++col) {
             Scalar tmp = (derived()(row, col) + derived()(col, row)) / Scalar(2);
             derived()(row, col) = tmp;
             derived()(col, row) = tmp;
