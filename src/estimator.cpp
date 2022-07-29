@@ -1,3 +1,5 @@
+
+#include <iostream>
 #include <state_estimation/common.h>
 #include <state_estimation/ekf.h>
 #include <state_estimation/estimator.h>
@@ -5,6 +7,7 @@
 #include <state_estimation/util.h>
 
 #include <geometry_msgs/msg/quaternion.hpp>
+
 using std::placeholders::_1;
 
 Estimator::Estimator() : Node("estimator_node") {
@@ -48,7 +51,7 @@ void Estimator::OnImu(const sensor_msgs::msg::Imu::SharedPtr msg) {
   imu_sample_new.time_us =
       (uint64_t)(rclcpp::Time(msg->header.stamp).nanoseconds() * 1e-3);
   dt_us =
-      clip<uint64_t>(imu_sample_new.time_us - imu_time_last_us, 1000, 100000);
+      Clip<uint64_t>(imu_sample_new.time_us - imu_time_last_us, 1000, 100000);
   imu_time_last_us = imu_sample_new.time_us;
   dt = dt_us * 1e-6;
   imu_time_last_us = imu_sample_new.time_us;

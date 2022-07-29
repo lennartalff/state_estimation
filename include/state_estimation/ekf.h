@@ -27,9 +27,6 @@ static constexpr int NumStates = 16;
 
 class Ekf final : public Interface {
  public:
-  static constexpr int kNumStates{16};
-  typedef Eigen::Matrix<double, kNumStates, 1> StateVectord;
-  typedef Eigen::Matrix<double, kNumStates, kNumStates> StateMatrixd;
   Ekf() = default;
   virtual ~Ekf() = default;
 

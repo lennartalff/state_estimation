@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdint.h>
-
+#define EIGEN_MATRIXBASE_PLUGIN <state_estimation/matrix_base_addon.h>
 #include <eigen3/Eigen/Dense>
 #include <rclcpp/rclcpp.hpp>
 
@@ -18,6 +18,11 @@ constexpr uint64_t kFilterUpdatePeriodUs = (uint64_t)10e3;
 constexpr double kGravity = 9.81;
 constexpr double kPi = 3.1415926;
 constexpr uint64_t kBadAccelProbation = (uint64_t)10e6;
+
+
+constexpr int kNumStates{16};
+typedef Eigen::Matrix<double, kNumStates, 1> StateVectord;
+typedef Eigen::Matrix<double, kNumStates, kNumStates> StateMatrixd;
 
 union ControlStatus {
   struct {

@@ -37,7 +37,14 @@ if(BUILD_TESTING)
 endif()
 
 include_directories(include)
-add_executable(estimator src/estimator.cpp src/interface.cpp src/ekf.cpp src/util.cpp src/ekf_util.cpp)
+add_executable(estimator
+  src/estimator.cpp
+  src/interface.cpp
+  src/ekf.cpp
+  src/util.cpp
+  src/ekf_util.cpp
+  src/ekf_covariance.cpp
+)
 
 # target_include_directories(interface
 #     PUBLIC
@@ -45,7 +52,14 @@ add_executable(estimator src/estimator.cpp src/interface.cpp src/ekf.cpp src/uti
 #     $<INSTALL_INTERFACE:include>)
 # 
 # ament_export_targets(interface HAS_LIBRARY_TARGET)
-ament_target_dependencies(estimator rclcpp Eigen3 hippo_interfaces sensor_msgs geometry_msgs)
+ament_target_dependencies(
+  estimator
+  rclcpp
+  Eigen3
+  hippo_interfaces
+  sensor_msgs
+  geometry_msgs
+)
 
 install(
     DIRECTORY launch

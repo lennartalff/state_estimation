@@ -223,12 +223,12 @@ void Ekf::ResetVerticalPositionTo(double position) {
 void Ekf::UpdateBaroHeightOffset() {
   if (!control_status_.flags.baro_height && baro_data_ready_) {
     const double local_time_step =
-        clip<double>(1e-6 * delta_time_baro_us_, 0.0, 1.0);
+        Clip<double>(1e-6 * delta_time_baro_us_, 0.0, 1.0);
     const double offset_rate_correction =
         0.1 * (state_.position(2) -
                (baro_sample_delayed_.height + baro_height_offset_));
     baro_height_offset_ +=
-        local_time_step * clip<double>(offset_rate_correction, -0.1, 0.1);
+        local_time_step * Clip<double>(offset_rate_correction, -0.1, 0.1);
   }
 }
 

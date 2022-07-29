@@ -1,6 +1,6 @@
 #include <state_estimation/util.h>
 
-double kahan_summation(double sum, double input, double &accumulator) {
+double KahanSummation(double sum, double input, double &accumulator) {
   const double y = input - accumulator;
   const double t = sum + y;
   accumulator = (t - sum) - y;

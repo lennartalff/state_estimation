@@ -9,7 +9,7 @@ void Interface::SetImuData(const ImuSample &imu_sample) {
   }
 
   const uint64_t delta_time_us =
-      clip<uint64_t>(imu_sample.time_us - time_last_imu_, 100, 40000);
+      Clip<uint64_t>(imu_sample.time_us - time_last_imu_, 100, 40000);
   time_last_imu_ = imu_sample.time_us;
 
   if (time_last_imu_ > 0) {
