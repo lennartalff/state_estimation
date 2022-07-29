@@ -37,7 +37,7 @@ def quat2Rot(q):
 
 def create_cov_matrix(i, j):
     if j >= i:
-        return sympy.Symbol("P(" + str(i) + "," + str(j) + ")", real=True)
+        return sympy.Symbol("P_(" + str(i) + "," + str(j) + ")", real=True)
         # legacy array format
         # return Symbol("P[" + str(i) + "][" + str(j) + "]", real=True)
     else:
@@ -60,7 +60,7 @@ def write_subexpressions(filehandle, expressions):
     output = ""
     for x in expressions:
         tmp = sympy.ccode(x[1], assign_to=x[0], type_aliases={real: float64})
-        output += f"{tmp}\n"
+        output += f"const double {tmp}\n"
     filehandle.write(output)
 
 

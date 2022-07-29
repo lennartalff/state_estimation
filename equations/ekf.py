@@ -142,7 +142,7 @@ delta_velocity_true = delta_velocity - delta_velocity_bias
 state = sympy.Matrix([q, v, p, delta_angle_bias, delta_velocity_bias])
 
 q_new = hf.quat_mult(q, sympy.Matrix([1, 0.5 * delta_angle_true[0], 0.5 * delta_angle_true[1], 0.5 * delta_angle_true[2]]))
-v_new = v + R_to_earth * delta_velocity_true + sympy.Matrix([0, 0, -g]) * dt
+v_new = v + R_to_earth * delta_velocity_true - sympy.Matrix([0, 0, g]) * dt
 p_new = p + v * dt
 delta_angle_bias_new = delta_angle_bias
 delta_velocity_bias_new = delta_velocity_bias
@@ -153,17 +153,16 @@ Q = G * u_var * G.T
 P = hf.create_symmetric_cov_matrix([sympy.shape(state)[0], sympy.shape(state)[0]])
 
 P_new = F * P * F.T + Q
+# Remove lower triangle of P matrix
 for row in range(sympy.shape(P_new)[0]):
     for col in range(sympy.shape(P_new)[1]):
         if row > col:
             P_new[row, col] = 0
-with open("test.tex", "w") as f:
-    f.write(sympy.latex(P_new))
 
+P_new_simple = sympy.cse(P_new, sympy.utilities.iterables.numbered_symbols(prefix='t'), optimizations='basic')
 
-
-P_new_simple = sympy.cse(P_new, sympy.utilities.iterables.numbered_symbols(prefix='tmp'), optimizations='basic')
-
-with open("test.c", "w") as f:
+with open("./generated/covariance_update_raw.c", "w") as f:
+    hf.write_matrix(f, sympy.Matrix(P_new), "P_new", True)
+with open("./generated/covariance_update.c", "w") as f:
     hf.write_subexpressions(f, P_new_simple[0])
     hf.write_matrix(f, sympy.Matrix(P_new_simple[1]), "P_new", True)
