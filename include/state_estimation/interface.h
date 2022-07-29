@@ -62,7 +62,7 @@ class Interface {
   bool InitInterface(uint64_t timestamp_us);
 
  private:
-  uint64_t min_observation_interval_us{0};
+  uint64_t min_observation_interval_us_{0};
   Eigen::Vector3d delta_angle_previous_;
   Eigen::Vector3d delta_velocity_previous_;
   uint64_t baro_timestamp_sum{0};

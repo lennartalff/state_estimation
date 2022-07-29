@@ -21,7 +21,7 @@ void Interface::SetImuData(const ImuSample &imu_sample) {
   if (imu_updated_) {
     imu_buffer_.Push(imu_sample);
     imu_sample_delayed_ = imu_buffer_.Oldest();
-    min_observation_interval_us =
+    min_observation_interval_us_ =
         (imu_sample.time_us - imu_sample_delayed_.time_us) /
         (observation_buffer_length_ - 1);
   }
@@ -39,7 +39,7 @@ void Interface::SetBaroData(const BaroSample &baro_sample) {
   }
 
   // guard against higher update rates than IMU
-  if ((baro_sample.time_us - time_last_baro_) > min_observation_interval_us) {
+  if ((baro_sample.time_us - time_last_baro_) > min_observation_interval_us_) {
     time_last_baro_ = baro_sample.time_us;
     BaroSample new_sample;
     new_sample.height = baro_sample.height;
@@ -64,7 +64,7 @@ void Interface::SetVisionData(const VisionSample &vision_sample) {
   }
 
   if ((vision_sample.time_us - time_last_vision_) >
-      min_observation_interval_us) {
+      min_observation_interval_us_) {
     time_last_vision_ = vision_sample.time_us;
     VisionSample new_sample = vision_sample;
     new_sample.time_us -= settings_.vision_delay_us;
