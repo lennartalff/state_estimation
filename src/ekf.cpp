@@ -130,6 +130,9 @@ bool Ekf::Update() {
   }
 
   if (imu_updated_) {
+    // TODO: does it make sense? In theo original implementation only the imu
+    // down-sampler sets the imu_updated_ state.
+    imu_updated_ = false;
     updated = true;
     PredictState();
     PredictCovariance();
@@ -157,11 +160,12 @@ void Ekf::PredictState() {
 
   const Eigen::Vector3d delta_velocity_corrected =
       imu_sample_delayed_.delta_velocity - state_.delta_velocity_bias;
+  const Eigen::Vector3d delta_velocity_corrected_earth = R_to_earth_ * delta_velocity_corrected;
 
   const Eigen::Vector3d velocity_last = state_.velocity;
   // TODO: check if delta velocity corrected still behaves weird.
-  // state_.velocity += delta_velocity_corrected;
-  state_.velocity += imu_sample_delayed_.delta_velocity;
+  state_.velocity += delta_velocity_corrected_earth;
+  // state_.velocity += imu_sample_delayed_.delta_velocity;
   // compensate gravity
   state_.velocity(2) -= kGravity * imu_sample_delayed_.delta_velocity_dt;
 
