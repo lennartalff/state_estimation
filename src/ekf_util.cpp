@@ -80,6 +80,27 @@ void Ekf::HeadingInnovationRatio(double &heading_innovation_ratio) const {
   heading_innovation_ratio = yaw_test_ratio_;
 }
 
+StateVectord Ekf::StateAtFusionTime() const {
+  StateVectord state;
+  state(StateIndex::qw) = state_.orientation.w();
+  state(StateIndex::qx) = state_.orientation.x();
+  state(StateIndex::qy) = state_.orientation.y();
+  state(StateIndex::qz) = state_.orientation.z();
+  state(StateIndex::velocity_x) = state_.velocity.x();
+  state(StateIndex::velocity_y) = state_.velocity.y();
+  state(StateIndex::velocity_z) = state_.velocity.z();
+  state(StateIndex::position_x) = state_.position.x();
+  state(StateIndex::position_y) = state_.position.y();
+  state(StateIndex::position_z) = state_.position.z();
+  state(StateIndex::delta_angle_bias_x) = state_.delta_angle_bias.x();
+  state(StateIndex::delta_angle_bias_y) = state_.delta_angle_bias.y();
+  state(StateIndex::delta_angle_bias_z) = state_.delta_angle_bias.z();
+  state(StateIndex::delta_velocity_bias_x) = state_.delta_velocity_bias.x();
+  state(StateIndex::delta_velocity_bias_y) = state_.delta_velocity_bias.y();
+  state(StateIndex::delta_velocity_bias_z) = state_.delta_velocity_bias.z();
+  return state;
+}
+
 void Ekf::SetControlBaroHeight() {
   control_status_.flags.baro_height = true;
   control_status_.flags.vision_height = false;
