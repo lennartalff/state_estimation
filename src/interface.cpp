@@ -70,6 +70,7 @@ void Interface::SetVisionData(const VisionSample &vision_sample) {
     VisionSample new_sample = vision_sample;
     new_sample.time_us -= settings_.vision_delay_us;
     new_sample.time_us -= kFilterUpdatePeriodUs / 2;
+    vision_buffer_.Push(new_sample);
   }
 }
 
@@ -85,9 +86,9 @@ bool Interface::InitInterface(uint64_t timestamp_us) {
       filter_delay_us / settings_.min_observation_interval_us + 1;
   observation_buffer_length_ =
       std::min<uint64_t>(observation_buffer_length_, imu_buffer_length_);
-  EKF_INFO("Observation buffer timespan: %u us",
+  EKF_INFO("Observation buffer timespan: %lu us",
            observation_buffer_length_ * settings_.min_observation_interval_us);
-  EKF_INFO("Imu buffer timespan: %u us",
+  EKF_INFO("Imu buffer timespan: %lu us",
            kFilterUpdatePeriodUs * imu_buffer_length_);
   if (!imu_buffer_.Allocate(imu_buffer_length_) ||
       !output_buffer_.Allocate(imu_buffer_length_)) {
