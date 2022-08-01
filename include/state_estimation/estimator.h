@@ -6,6 +6,7 @@
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include <hippo_interfaces/msg/estimator_innovation.hpp>
 #include <hippo_interfaces/msg/estimator_sensor_bias.hpp>
+#include <hippo_interfaces/msg/estimator_state.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/fluid_pressure.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -34,9 +35,10 @@ class Estimator final : public rclcpp::Node {
   void VisionUpdate();
 
   void PublishAttitude(const rclcpp::Time &stamp);
+  void PublishInnovations(const rclcpp::Time &stamp);
   void PublishPose(const rclcpp::Time &stamp);
   void PublishSensorBias(const rclcpp::Time &stamp);
-  void PublishInnovations(const rclcpp::Time &stamp);
+  void PublishState(const rclcpp::Time &stamp);
   void PublishVelocity(const rclcpp::Time &stamp);
 
   void ResetImuWatchdog() {
@@ -48,6 +50,9 @@ class Estimator final : public rclcpp::Node {
   void Run();
 
  private:
+  //////////////////////////////////////////////////////////////////////////////
+  // Publisher
+  //////////////////////////////////////////////////////////////////////////////
   rclcpp::Publisher<hippo_interfaces::msg::EstimatorInnovation>::SharedPtr
       innovation_pub_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist_pub_;
@@ -57,6 +62,12 @@ class Estimator final : public rclcpp::Node {
       attitude_pub_;
   rclcpp::Publisher<hippo_interfaces::msg::EstimatorSensorBias>::SharedPtr
       sensor_bias_pub_;
+  rclcpp::Publisher<hippo_interfaces::msg::EstimatorState>::SharedPtr
+      state_pub_;
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Subscriber
+  //////////////////////////////////////////////////////////////////////////////
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   rclcpp::Subscription<sensor_msgs::msg::FluidPressure>::SharedPtr baro_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr

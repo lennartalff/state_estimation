@@ -1,5 +1,4 @@
 
-#include <iostream>
 #include <state_estimation/common.h>
 #include <state_estimation/ekf.h>
 #include <state_estimation/estimator.h>
@@ -7,6 +6,7 @@
 #include <state_estimation/util.h>
 
 #include <geometry_msgs/msg/quaternion.hpp>
+#include <iostream>
 
 using std::placeholders::_1;
 
@@ -38,6 +38,8 @@ void Estimator::InitPublisher() {
           "~/innovation", 10);
   twist_pub_ =
       create_publisher<geometry_msgs::msg::TwistStamped>("~/velocity", 10);
+  state_pub_ =
+      create_publisher<hippo_interfaces::msg::EstimatorState>("~/state", 10);
 }
 
 void Estimator::OnImu(const sensor_msgs::msg::Imu::SharedPtr msg) {
@@ -71,6 +73,7 @@ void Estimator::OnImu(const sensor_msgs::msg::Imu::SharedPtr msg) {
   BaroUpdate();
   VisionUpdate();
   if (ekf_.Update()) {
+    PublishState(now_stamp);
     PublishPose(now_stamp);
     PublishSensorBias(now_stamp);
     PublishInnovations(now_stamp);
@@ -208,6 +211,30 @@ void Estimator::PublishInnovations(const rclcpp::Time &stamp) {
   ekf_.HeadingInnovation(msg.heading);
   innovation_pub_->publish(msg);
 }
+
+void Estimator::PublishState(const rclcpp::Time &stamp) {
+  hippo_interfaces::msg::EstimatorState msg;
+  StateVectord state = ekf_.StateAtFusionTime();
+  msg.header.stamp = stamp;
+  msg.orientation.w = state(StateIndex::qw);
+  msg.orientation.x = state(StateIndex::qx);
+  msg.orientation.y = state(StateIndex::qy);
+  msg.orientation.z = state(StateIndex::qz);
+  msg.velocity.x = state(StateIndex::velocity_x);
+  msg.velocity.y = state(StateIndex::velocity_y);
+  msg.velocity.z = state(StateIndex::velocity_z);
+  msg.position.x = state(StateIndex::position_x);
+  msg.position.y = state(StateIndex::position_y);
+  msg.position.z = state(StateIndex::position_z);
+  msg.delta_angle_bias.x = state(StateIndex::delta_angle_bias_x);
+  msg.delta_angle_bias.y = state(StateIndex::delta_angle_bias_y);
+  msg.delta_angle_bias.z = state(StateIndex::delta_angle_bias_z);
+  msg.delta_velocity_bias.x = state(StateIndex::delta_velocity_bias_x);
+  msg.delta_velocity_bias.y = state(StateIndex::delta_velocity_bias_y);
+  msg.delta_velocity_bias.z = state(StateIndex::delta_velocity_bias_z);
+  state_pub_->publish(msg);
+  }
+
 void Estimator::PublishVelocity(const rclcpp::Time &stamp) {
   geometry_msgs::msg::TwistStamped msg;
   msg.header.stamp = stamp;
