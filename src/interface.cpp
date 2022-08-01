@@ -16,6 +16,7 @@ void Interface::SetImuData(const ImuSample &imu_sample) {
     imu_dt_average_ =
         0.8 * imu_dt_average_ + 0.2 * (double)delta_time_us * 1e-6;
   }
+  latest_imu_sample_ = imu_sample;
   // TODO: call the imu downsampler in case it will be implemented
   imu_updated_ = true;
   if (imu_updated_) {
