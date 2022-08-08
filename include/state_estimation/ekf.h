@@ -54,6 +54,7 @@ class Ekf final : public Interface {
   void FuseVelocityPositionHeight(const double innovation,
                                   const double innovation_var,
                                   const int observation_index);
+  void FuseOrientation();
   void FuseHeading();
   void FuseYaw321(double yaw, double yaw_var, bool zero_innovation);
   void FuseYaw312(double yaw, double yaw_var, bool zero_innovation);

@@ -19,55 +19,86 @@ endif()
 find_package(ament_cmake REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
-find_package(rclcpp REQUIRED)
-find_package(Eigen3 REQUIRED)
-find_package(hippo_interfaces REQUIRED)
-find_package(geometry_msgs REQUIRED)
-find_package(sensor_msgs REQUIRED)
-
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # uncomment the line when a copyright and license is not present in all source files
-  #set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # uncomment the line when this package is not in a git repo
-  #set(ament_cmake_cpplint_FOUND TRUE)
-  ament_lint_auto_find_test_dependencies()
-endif()
-
-include_directories(include)
-add_executable(estimator
-  src/estimator.cpp
-  src/interface.cpp
-  src/ekf.cpp
-  src/util.cpp
-  src/ekf_util.cpp
-  src/ekf_covariance.cpp
-)
-
-# target_include_directories(interface
-#     PUBLIC
-#     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-#     $<INSTALL_INTERFACE:include>)
-# 
-# ament_export_targets(interface HAS_LIBRARY_TARGET)
-ament_target_dependencies(
-  estimator
+set(dependencies
   rclcpp
   Eigen3
   hippo_interfaces
-  sensor_msgs
   geometry_msgs
+  sensor_msgs
 )
+foreach(Dependency IN ITEMS ${dependencies})
+  find_package(${Dependency} REQUIRED)
+endforeach()
+
+include_directories(include)
+
+add_library(ekf SHARED 
+  src/interface.cpp
+  src/ekf/ekf_covariance.cpp
+  src/ekf/ekf.cpp
+  src/ekf/ekf_util.cpp
+  src/util.cpp
+)
+ament_target_dependencies(ekf
+  ${dependencies}
+)
+
+add_library(sensor_sim SHARED
+  src/sensor_sim/baro.cpp
+  src/sensor_sim/imu.cpp
+  src/sensor_sim/sensor.cpp
+  src/sensor_sim/sensor_sim.cpp
+  src/sensor_sim/vision.cpp
+)
+ament_target_dependencies(sensor_sim
+  ${dependencies}
+)
+target_link_libraries(sensor_sim
+  ekf
+)
+
+add_executable(estimator
+  src/estimator.cpp
+)
+target_link_libraries(estimator
+  ekf
+)
+
+ament_target_dependencies(estimator ${dependencies})
 
 install(
     DIRECTORY launch
     DESTINATION share/${PROJECT_NAME}
 )
-install(
-    TARGETS
-    estimator
-    DESTINATION lib/${PROJECT_NAME}
+install(TARGETS
+  ekf
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
+install(TARGETS
+  estimator
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  find_package(ament_cmake_gtest REQUIRED)
+  # skip linters
+  set(ament_cmake_cppcheck_FOUND TRUE)
+  set(ament_cmake_copyright_FOUND TRUE)
+  set(ament_cmake_cpplint_FOUND TRUE)
+  set(ament_cmake_flake8_FOUND TRUE)
+  set(ament_cmake_uncrustify_FOUND TRUE)
+
+  ament_lint_auto_find_test_dependencies()
+  add_subdirectory(test)
+  # ament_add_gtest(basic_test
+  #   test/basic_test.cpp)
+  # ament_target_dependencies(basic_test ${dependencies})
+endif()
+
+ament_export_dependencies(${dependencies})
+ament_export_libraries(ekf)
+ament_export_include_directories(include)
 ament_package()

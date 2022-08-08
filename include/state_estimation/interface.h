@@ -9,12 +9,12 @@ class Interface {
   void SetImuData(const ImuSample &imu_sample);
   void SetBaroData(const BaroSample &baro_sample);
   void SetVisionData(const VisionSample &vision_sample);
+  bool AttitudeValid() const { return control_status_.flags.tilt_align; }
 
   const decltype(FaultStatus::flags) &FaultStatusFlag() const {
     return fault_status_.flags;
   }
   Settings settings_;
-
 
  protected:
   Interface() = default;
