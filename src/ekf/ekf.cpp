@@ -114,8 +114,6 @@ bool Ekf::InitTilt() {
                        Eigen::AngleAxisd(pitch, unit_y) *
                        Eigen::AngleAxisd(0.0, unit_z);
   state_.orientation.normalize();
-  Eigen::Vector3d euler =
-      state_.orientation.toRotationMatrix().eulerAngles(0, 1, 2);
   R_to_earth_ = state_.orientation.matrix();
   control_status_.flags.vision_orientation = true;
   // control_status_.flags.tilt_align = true;
@@ -927,8 +925,6 @@ void Ekf::UpdateVisionFusion() {
     }
     if (control_status_.flags.vision_orientation) {
       FuseOrientation();
-      const Eigen::Vector3d e =
-          state_.orientation.toRotationMatrix().eulerAngles(0, 1, 2);
     } else if (control_status_.flags.vision_yaw) {
       FuseHeading();
     }
