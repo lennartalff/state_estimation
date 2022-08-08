@@ -32,7 +32,7 @@ endforeach()
 
 include_directories(include)
 
-add_library(ekf SHARED 
+add_library(ekf SHARED
   src/interface.cpp
   src/ekf/ekf_covariance.cpp
   src/ekf/ekf.cpp
