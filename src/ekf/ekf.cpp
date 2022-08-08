@@ -1,7 +1,8 @@
 #include <state_estimation/ekf.h>
 #include <state_estimation/util.h>
-#include <iostream>
+
 #include <cmath>
+#include <iostream>
 
 bool Ekf::Init(uint64_t timestamp_us) {
   bool ret = InitInterface(timestamp_us);
@@ -313,36 +314,45 @@ void Ekf::FuseOrientation() {
   } else {
     return;
   }
-  EKF_INFO("Measurement: %.2f, %.2f, %.2f, %.2f", orientation.w(),
-           orientation.x(), orientation.y(), orientation.z());
-  EKF_INFO("State: %.2f, %.2f, %.2f, %.2f", state_.orientation.w(),
-           state_.orientation.x(), state_.orientation.y(),
-           state_.orientation.z());
   const Eigen::Quaterniond q_innov =
-      (orientation * state_.orientation.inverse()).normalized();
+      Eigen::Quaterniond{state_.orientation.w() - orientation.w(),
+                         state_.orientation.x() - orientation.x(),
+                         state_.orientation.y() - orientation.y(),
+                         state_.orientation.z() - orientation.z()}
+          .normalized();
   Eigen::Vector4d innovation = {q_innov.w(), q_innov.x(), q_innov.y(),
                                 q_innov.z()};
-  Eigen::Vector4d innovation_var = {P_(0, 0) + 0.1, P_(1, 1) + 0.1,
-                                    P_(2, 2) + 0.1, P_(3, 3) + 0.1};
+  Eigen::Vector4d innovation_var = {P_(0, 0) + 0.01, P_(1, 1) + 0.01,
+                                    P_(2, 2) + 0.01, P_(3, 3) + 0.01};
   StateVectord K_fusion;
   StateMatrixd KHP;
   for (int i = 0; i < 4; ++i) {
-    bool healthy = true;
     for (int row = 0; row < StateIndex::NumStates; ++row) {
       K_fusion(row) = P_(row, i) / innovation_var(i);
+    }
+
+    for (int row = 0; row < StateIndex::NumStates; ++row) {
       for (int col = 0; col < StateIndex::NumStates; ++col) {
         KHP(row, col) = K_fusion(row) * P_(i, col);
       }
-      if (P_(row, row) < KHP(row, row)) {
+    }
+
+    bool healthy = true;
+    for (int index = 0; index < StateIndex::NumStates; ++index) {
+      if (P_(index, index) < KHP(index, index)) {
         healthy = false;
-        P_.UncorrelateCovariance<StateIndex::NumStates>(0);
+        P_.UncorrelateCovarianceSetVariance<1>(index, 0.0);
       }
     }
+
     if (healthy) {
       P_ -= KHP;
       FixCovarianceErrors(true);
-      std::cout << K_fusion.transpose() << std::endl;
-      Fuse(K_fusion, innovation(i));
+      // TODO(lennartalff): Actually the innovation should not be multiplied by
+      // 1/4
+      Fuse(K_fusion, innovation(i) * 0.25);
+    } else {
+      EKF_WARN("Unhealthy innovation: q%d", i);
     }
   }
 }
@@ -745,6 +755,9 @@ void Ekf::UpdateSensorFusion() {
         square(3.0 / 180 * kPi)) {
       control_status_.flags.tilt_align = true;
       EKF_INFO("Tilt aligned.");
+    } else {
+      EKF_DEBUG("Error Vec Var: %.6lf",
+               angle_err_vec_var(0) + angle_err_vec_var(1));
     }
   }
 
@@ -916,7 +929,6 @@ void Ekf::UpdateVisionFusion() {
       FuseOrientation();
       const Eigen::Vector3d e =
           state_.orientation.toRotationMatrix().eulerAngles(0, 1, 2);
-      EKF_INFO("%.2f, %.2f, %.2f", e.x(), e.y(), e.z());
     } else if (control_status_.flags.vision_yaw) {
       FuseHeading();
     }
