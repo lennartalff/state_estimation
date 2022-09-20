@@ -15,7 +15,7 @@
 
   <depend>rclcpp</depend>
   <depend>eigen</depend>
-  <depend>hippo_interfaces</depend>
+  <depend>hippo_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
 

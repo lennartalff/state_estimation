@@ -4,9 +4,9 @@
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/quaternion_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
-#include <hippo_interfaces/msg/estimator_innovation.hpp>
-#include <hippo_interfaces/msg/estimator_sensor_bias.hpp>
-#include <hippo_interfaces/msg/estimator_state.hpp>
+#include <hippo_msgs/msg/estimator_innovation.hpp>
+#include <hippo_msgs/msg/estimator_sensor_bias.hpp>
+#include <hippo_msgs/msg/estimator_state.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/fluid_pressure.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -53,16 +53,16 @@ class Estimator final : public rclcpp::Node {
   //////////////////////////////////////////////////////////////////////////////
   // Publisher
   //////////////////////////////////////////////////////////////////////////////
-  rclcpp::Publisher<hippo_interfaces::msg::EstimatorInnovation>::SharedPtr
+  rclcpp::Publisher<hippo_msgs::msg::EstimatorInnovation>::SharedPtr
       innovation_pub_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
       pose_pub_;
   rclcpp::Publisher<geometry_msgs::msg::QuaternionStamped>::SharedPtr
       attitude_pub_;
-  rclcpp::Publisher<hippo_interfaces::msg::EstimatorSensorBias>::SharedPtr
+  rclcpp::Publisher<hippo_msgs::msg::EstimatorSensorBias>::SharedPtr
       sensor_bias_pub_;
-  rclcpp::Publisher<hippo_interfaces::msg::EstimatorState>::SharedPtr
+  rclcpp::Publisher<hippo_msgs::msg::EstimatorState>::SharedPtr
       state_pub_;
 
   //////////////////////////////////////////////////////////////////////////////

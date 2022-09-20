@@ -31,15 +31,15 @@ void Estimator::InitPublisher() {
   attitude_pub_ =
       create_publisher<geometry_msgs::msg::QuaternionStamped>("~/attitude", 10);
   sensor_bias_pub_ =
-      create_publisher<hippo_interfaces::msg::EstimatorSensorBias>(
+      create_publisher<hippo_msgs::msg::EstimatorSensorBias>(
           "~/sensor_bias", 10);
   innovation_pub_ =
-      create_publisher<hippo_interfaces::msg::EstimatorInnovation>(
+      create_publisher<hippo_msgs::msg::EstimatorInnovation>(
           "~/innovation", 10);
   twist_pub_ =
       create_publisher<geometry_msgs::msg::TwistStamped>("~/velocity", 10);
   state_pub_ =
-      create_publisher<hippo_interfaces::msg::EstimatorState>("~/state", 10);
+      create_publisher<hippo_msgs::msg::EstimatorState>("~/state", 10);
 }
 
 void Estimator::OnImu(const sensor_msgs::msg::Imu::SharedPtr msg) {
@@ -164,7 +164,7 @@ void Estimator::PublishPose(const rclcpp::Time &stamp) {
 }
 
 void Estimator::PublishSensorBias(const rclcpp::Time &stamp) {
-  hippo_interfaces::msg::EstimatorSensorBias bias;
+  hippo_msgs::msg::EstimatorSensorBias bias;
   bias.header.stamp = stamp;
   const Eigen::Vector3d gyro_bias{ekf_.GyroBias()};
   const Eigen::Vector3d accel_bias{ekf_.AccelerationBias()};
@@ -200,7 +200,7 @@ void Estimator::PublishSensorBias(const rclcpp::Time &stamp) {
 }
 
 void Estimator::PublishInnovations(const rclcpp::Time &stamp) {
-  hippo_interfaces::msg::EstimatorInnovation msg;
+  hippo_msgs::msg::EstimatorInnovation msg;
   msg.header.stamp = stamp;
   double position[3];
   ekf_.VisionPositionInnovation(position);
@@ -213,7 +213,7 @@ void Estimator::PublishInnovations(const rclcpp::Time &stamp) {
 }
 
 void Estimator::PublishState(const rclcpp::Time &stamp) {
-  hippo_interfaces::msg::EstimatorState msg;
+  hippo_msgs::msg::EstimatorState msg;
   StateVectord state = ekf_.StateAtFusionTime();
   msg.header.stamp = stamp;
   msg.orientation.w = state(StateIndex::qw);

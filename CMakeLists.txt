@@ -22,7 +22,7 @@ find_package(ament_cmake REQUIRED)
 set(dependencies
   rclcpp
   Eigen3
-  hippo_interfaces
+  hippo_msgs
   geometry_msgs
   sensor_msgs
 )
