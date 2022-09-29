@@ -107,12 +107,7 @@ bool Ekf::InitTilt() {
   const double roll = atan2(-gravity_body(1), gravity_body(2));
   EKF_INFO("Initializing tilt with roll=%.2f, pitch=%.2f", pitch * 180.0 / M_PI,
            roll * 180 / M_PI);
-  const auto unit_x = Eigen::Vector3d::UnitX();
-  const auto unit_y = Eigen::Vector3d::UnitY();
-  const auto unit_z = Eigen::Vector3d::UnitZ();
-  state_.orientation = Eigen::AngleAxisd(roll, unit_x) *
-                       Eigen::AngleAxisd(pitch, unit_y) *
-                       Eigen::AngleAxisd(0.0, unit_z);
+  state_.orientation = EulerToQuaternion(roll, pitch, 0.0);
   state_.orientation.normalize();
   R_to_earth_ = state_.orientation.matrix();
   control_status_.flags.vision_orientation = true;

@@ -128,3 +128,15 @@ Eigen::Matrix3d UpdateYawInRotationMatrix(double yaw, const Eigen::Matrix3d &R);
 double KahanSummation(double sum, double input, double &accumulator);
 Eigen::Matrix3d TaitBryan312ToRotationMatrix(const Eigen::Vector3d &euler);
 Eigen::Matrix3d UpdateYawInRotationMatrix(double yaw, const Eigen::Matrix3d &R);
+
+/**
+ * @brief Euler representation is assumed to describe rotations around static
+ * axes in the order x, y, z or around the temporary axes in the order z, y',
+ * x'' as both are equivalent.
+ *
+ * @param _roll
+ * @param _pitch
+ * @param _yaw
+ * @return Eigen::Quaterniond
+ */
+Eigen::Quaterniond EulerToQuaternion(double _roll, double _pitch, double _yaw);

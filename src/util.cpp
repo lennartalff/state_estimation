@@ -46,3 +46,11 @@ Eigen::Matrix3d UpdateYawInRotationMatrix(double yaw,
     return TaitBryan312ToRotationMatrix(ypr);
   }
 }
+
+Eigen::Quaterniond EulerToQuaternion(double _roll, double _pitch, double _yaw) {
+  Eigen::Quaterniond q;
+  q = Eigen::AngleAxisd(_yaw, Eigen::Vector3d::UnitZ()) *
+      Eigen::AngleAxisd(_pitch, Eigen::Vector3d::UnitY()) *
+      Eigen::AngleAxisd(_roll, Eigen::Vector3d::UnitX());
+  return q;
+}
